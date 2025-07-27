@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { Upload, FileText, BarChart2, CheckCircle, AlertTriangle, Clock, User, Shield } from 'lucide-react';
+import { Upload, FileText, CheckCircle, AlertTriangle, Clock, Shield } from 'lucide-react';
 
 // --- MOCK DATA ---
 // In a real application, this data would come from your Django backend API.
@@ -376,7 +376,7 @@ const AdminViewPage = ({ setPage }) => {
                         <div className="border rounded-lg p-4 text-center bg-gray-50">
                             <FileText className="w-16 h-16 text-gray-400 mx-auto mb-2" />
                             <p className="text-sm text-gray-700">medical_receipt.pdf</p>
-                            <a href="#" className="text-blue-600 hover:underline text-sm font-medium mt-2 block">Download Document</a>
+                            <a href="#!" className="text-blue-600 hover:underline text-sm font-medium mt-2 block">Download Document</a>
                         </div>
                     </div>
                 </div>
