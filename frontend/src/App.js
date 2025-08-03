@@ -222,25 +222,50 @@ const DashboardPage = ({ setPage, userType }) => {
 const SubmitClaimPage = ({ setPage }) => {
     const [file, setFile] = useState(null);
     const [isUploading, setIsUploading] = useState(false);
-    const [uploadSuccess, setUploadSuccess] = useState(false);
+    const [uploadStatus, setUploadStatus] = useState(''); // To show success or error messages
 
     const handleFileChange = (e) => {
         if (e.target.files.length > 0) {
             setFile(e.target.files[0]);
-            setUploadSuccess(false);
+            setUploadStatus(''); // Clear previous messages
         }
     };
 
-    const handleSubmit = (e) => {
+    // This function is now updated to make a real API call
+    const handleSubmit = async (e) => {
         e.preventDefault();
-        if (!file) return;
+        if (!file) {
+            setUploadStatus('Please select a file first.');
+            return;
+        }
+
         setIsUploading(true);
-        // Simulate API call
-        setTimeout(() => {
+        setUploadStatus('Submitting and processing...');
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        try {
+            // This sends the file to your Flask backend
+            const response = await fetch('http://localhost:5001/api/submit', {
+                method: 'POST',
+                body: formData,
+            });
+
+            if (!response.ok) {
+                throw new Error('Server responded with an error.');
+            }
+
+            const result = await response.json();
+            setUploadStatus(`Success! Claim ${result.claim_id} submitted. You can track its status on the dashboard.`);
+            setFile(null); // Clear the file input on success
+
+        } catch (error) {
+            console.error('Submission failed:', error);
+            setUploadStatus('Submission failed. Please check the console and try again.');
+        } finally {
             setIsUploading(false);
-            setUploadSuccess(true);
-            setFile(null);
-        }, 2000);
+        }
     };
 
     return (
@@ -272,10 +297,10 @@ const SubmitClaimPage = ({ setPage }) => {
                     {file && <p className="mt-2 text-sm text-gray-500">Selected file: {file.name}</p>}
                 </div>
 
-                {uploadSuccess && (
+                {/* This now shows a dynamic status message */}
+                {uploadStatus && (
                     <div className="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 mb-6 rounded-md" role="alert">
-                        <p className="font-bold">Success!</p>
-                        <p>Your claim has been submitted. You can track its status on the dashboard.</p>
+                        <p>{uploadStatus}</p>
                     </div>
                 )}
 
