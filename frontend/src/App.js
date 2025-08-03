@@ -160,24 +160,26 @@ const DashboardPage = ({ setPage, userType }) => {
         </div>
       </div>
 
-      {/* Claims Summary Chart (This still uses mock data, you can update it later) */}
-      <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-          <h3 className="text-xl font-semibold text-gray-800 mb-4">Monthly Claim Volume</h3>
-          <div style={{ width: '100%', height: 300 }}>
-              <ResponsiveContainer>
-                  <BarChart data={mockChartData}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="name" />
-                      <YAxis />
-                      <Tooltip />
-                      <Legend />
-                      <Bar dataKey="Approved" fill="#4ade80" />
-                      <Bar dataKey="Rejected" fill="#f87171" />
-                      <Bar dataKey="Flagged" fill="#facc15" />
-                  </BarChart>
-              </ResponsiveContainer>
-          </div>
-      </div>
+      {/* Claims Summary Chart - Insurer Only */}
+      {userType === 'insurer' && (
+        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+            <h3 className="text-xl font-semibold text-gray-800 mb-4">Monthly Claim Volume</h3>
+            <div style={{ width: '100%', height: 300 }}>
+                <ResponsiveContainer>
+                    <BarChart data={mockChartData}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="name" />
+                        <YAxis />
+                        <Tooltip />
+                        <Legend />
+                        <Bar dataKey="Approved" fill="#4ade80" />
+                        <Bar dataKey="Rejected" fill="#f87171" />
+                        <Bar dataKey="Flagged" fill="#facc15" />
+                    </BarChart>
+                </ResponsiveContainer>
+            </div>
+        </div>
+      )}
 
       {/* Recent Claims Table */}
       <div>
