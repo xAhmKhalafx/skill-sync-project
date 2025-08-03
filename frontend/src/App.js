@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { Upload, FileText, CheckCircle, AlertTriangle, Clock, Shield } from 'lucide-react';
+import { FileText, CheckCircle, AlertTriangle, Clock, Shield } from 'lucide-react';
 
 // --- MOCK DATA ---
 // In a real application, this data would come from your Django backend API.
@@ -318,6 +318,7 @@ const SubmitClaimPage = ({ setPage }) => {
         </div>
     );
 };
+
 const ClaimStatusPage = ({ setPage }) => {
     const claim = mockClaims[0]; // Using a mock claim for display
 
