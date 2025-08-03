@@ -33,7 +33,7 @@ const Header = ({ setPage, userType, setUserType }) => (
       <div className="flex items-center space-x-4">
          <span className="text-sm text-gray-500">Viewing as:</span>
          <select value={userType} onChange={(e) => setUserType(e.target.value)} className="p-2 rounded-md border border-gray-300 bg-white text-sm focus:ring-2 focus:ring-blue-500">
-             <option value="policyholder">Policyholder</option>
+             <option value="policyholder">User</option>
              <option value="insurer">Insurer</option>
          </select>
          <button onClick={() => setPage('dashboard')} className="text-gray-600 hover:text-blue-600">Dashboard</button>
