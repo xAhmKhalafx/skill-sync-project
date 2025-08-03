@@ -85,28 +85,28 @@ const RiskIndicator = ({ risk }) => {
 // --- PAGES ---
 
 const DashboardPage = ({ setPage, userType }) => {
-  // --- NEW: State to hold claims from the API ---
+  console.log("DashboardPage is rendering..."); // <-- ADD THIS LINE
+
   const [claims, setClaims] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // --- NEW: useEffect to fetch data from your backend ---
   useEffect(() => {
+    console.log("useEffect is running, about to fetch claims..."); // <-- ADD THIS LINE
+
     const fetchClaims = async () => {
       try {
-        // This is the API call to your Flask backend
         const response = await fetch('http://localhost:5001/api/claims');
         const data = await response.json();
-        setClaims(data); // Store the fetched claims in state
+        setClaims(data);
       } catch (error) {
         console.error("Failed to fetch claims:", error);
-        // Handle error, e.g., show an error message
       } finally {
-        setLoading(false); // Stop showing the loading message
+        setLoading(false);
       }
     };
 
     fetchClaims();
-  }, []); // The empty array [] means this runs once when the component loads
+  }, []);
 
   // --- NEW: Show a loading message while data is being fetched ---
   if (loading) {
