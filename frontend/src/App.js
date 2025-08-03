@@ -84,105 +84,140 @@ const RiskIndicator = ({ risk }) => {
 
 // --- PAGES ---
 
-const DashboardPage = ({ setPage, userType }) => (
-  <div className="space-y-8">
-    <div>
-      <h2 className="text-3xl font-bold text-gray-800">Welcome, {userType === 'policyholder' ? 'Policyholder' : 'Insurer'}!</h2>
-      <p className="mt-2 text-gray-600">Here's a summary of your insurance claims activity.</p>
-    </div>
+const DashboardPage = ({ setPage, userType }) => {
+  // --- NEW: State to hold claims from the API ---
+  const [claims, setClaims] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-    {/* Key Metrics */}
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-      <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-        <div className="flex items-center space-x-4">
-          <div className="p-3 bg-blue-100 rounded-full">
-            <FileText className="w-6 h-6 text-blue-600" />
+  // --- NEW: useEffect to fetch data from your backend ---
+  useEffect(() => {
+    const fetchClaims = async () => {
+      try {
+        // This is the API call to your Flask backend
+        const response = await fetch('http://localhost:5001/api/claims');
+        const data = await response.json();
+        setClaims(data); // Store the fetched claims in state
+      } catch (error) {
+        console.error("Failed to fetch claims:", error);
+        // Handle error, e.g., show an error message
+      } finally {
+        setLoading(false); // Stop showing the loading message
+      }
+    };
+
+    fetchClaims();
+  }, []); // The empty array [] means this runs once when the component loads
+
+  // --- NEW: Show a loading message while data is being fetched ---
+  if (loading) {
+    return <div className="text-center p-8">Loading claims data...</div>;
+  }
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <h2 className="text-3xl font-bold text-gray-800">Welcome, {userType === 'policyholder' ? 'Policyholder' : 'Insurer'}!</h2>
+        <p className="mt-2 text-gray-600">Here's a summary of your insurance claims activity.</p>
+      </div>
+
+      {/* Key Metrics */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+          <div className="flex items-center space-x-4">
+            <div className="p-3 bg-blue-100 rounded-full">
+              <FileText className="w-6 h-6 text-blue-600" />
+            </div>
+            <div>
+              <p className="text-gray-500 text-sm">Total Claims</p>
+              {/* UPDATED: Use the length of the new 'claims' state */}
+              <p className="text-2xl font-bold text-gray-800">{claims.length}</p>
+            </div>
           </div>
-          <div>
-            <p className="text-gray-500 text-sm">Total Claims</p>
-            <p className="text-2xl font-bold text-gray-800">{mockClaims.length}</p>
+        </div>
+        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+          <div className="flex items-center space-x-4">
+            <div className="p-3 bg-green-100 rounded-full">
+              <CheckCircle className="w-6 h-6 text-green-600" />
+            </div>
+            <div>
+              <p className="text-gray-500 text-sm">Approved</p>
+               {/* UPDATED: Use the new 'claims' state */}
+              <p className="text-2xl font-bold text-gray-800">{claims.filter(c => c.status === 'Approved').length}</p>
+            </div>
+          </div>
+        </div>
+        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+          <div className="flex items-center space-x-4">
+            <div className="p-3 bg-yellow-100 rounded-full">
+              <AlertTriangle className="w-6 h-6 text-yellow-600" />
+            </div>
+            <div>
+              <p className="text-gray-500 text-sm">Pending/Flagged</p>
+              {/* UPDATED: Use the new 'claims' state */}
+              <p className="text-2xl font-bold text-gray-800">{claims.filter(c => c.status === 'Processing' || c.status === 'Flagged').length}</p>
+            </div>
           </div>
         </div>
       </div>
-      <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-        <div className="flex items-center space-x-4">
-          <div className="p-3 bg-green-100 rounded-full">
-            <CheckCircle className="w-6 h-6 text-green-600" />
-          </div>
-          <div>
-            <p className="text-gray-500 text-sm">Approved</p>
-            <p className="text-2xl font-bold text-gray-800">{mockClaims.filter(c => c.status === 'Approved').length}</p>
-          </div>
-        </div>
-      </div>
-      <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-        <div className="flex items-center space-x-4">
-          <div className="p-3 bg-yellow-100 rounded-full">
-            <AlertTriangle className="w-6 h-6 text-yellow-600" />
-          </div>
-          <div>
-            <p className="text-gray-500 text-sm">Pending/Flagged</p>
-            <p className="text-2xl font-bold text-gray-800">{mockClaims.filter(c => c.status === 'Processing' || c.status === 'Flagged').length}</p>
-          </div>
-        </div>
-      </div>
-    </div>
 
-    {/* Claims Summary Chart */}
-    <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-        <h3 className="text-xl font-semibold text-gray-800 mb-4">Monthly Claim Volume</h3>
-        <div style={{ width: '100%', height: 300 }}>
-            <ResponsiveContainer>
-                <BarChart data={mockChartData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="name" />
-                    <YAxis />
-                    <Tooltip />
-                    <Legend />
-                    <Bar dataKey="Approved" fill="#4ade80" />
-                    <Bar dataKey="Rejected" fill="#f87171" />
-                    <Bar dataKey="Flagged" fill="#facc15" />
-                </BarChart>
-            </ResponsiveContainer>
-        </div>
-    </div>
+      {/* Claims Summary Chart (This still uses mock data, you can update it later) */}
+      <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+          <h3 className="text-xl font-semibold text-gray-800 mb-4">Monthly Claim Volume</h3>
+          <div style={{ width: '100%', height: 300 }}>
+              <ResponsiveContainer>
+                  <BarChart data={mockChartData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="name" />
+                      <YAxis />
+                      <Tooltip />
+                      <Legend />
+                      <Bar dataKey="Approved" fill="#4ade80" />
+                      <Bar dataKey="Rejected" fill="#f87171" />
+                      <Bar dataKey="Flagged" fill="#facc15" />
+                  </BarChart>
+              </ResponsiveContainer>
+          </div>
+      </div>
 
-    {/* Recent Claims Table */}
-    <div>
-      <h3 className="text-xl font-semibold text-gray-800 mb-4">Recent Claims</h3>
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Claim ID</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Procedure</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                {userType === 'insurer' && <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fraud Risk</th>}
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {mockClaims.map(claim => (
-                <tr key={claim.id}>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-700">{claim.id}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{claim.procedure}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${claim.amount.toFixed(2)}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm"><StatusBadge status={claim.status} /></td>
-                  {userType === 'insurer' && <td className="px-6 py-4 whitespace-nowrap text-sm"><RiskIndicator risk={claim.fraudRisk} /></td>}
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <button onClick={() => setPage(userType === 'insurer' ? 'adminView' : 'claimStatus')} className="text-blue-600 hover:text-blue-800">View Details</button>
-                  </td>
+      {/* Recent Claims Table */}
+      <div>
+        <h3 className="text-xl font-semibold text-gray-800 mb-4">Recent Claims</h3>
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Claim ID</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Procedure</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                  {userType === 'insurer' && <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fraud Risk</th>}
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {/* --- THIS IS THE MOST IMPORTANT CHANGE --- */}
+                {/* It now maps over the 'claims' from your API instead of 'mockClaims' */}
+                {claims.map(claim => (
+                  <tr key={claim.id}>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-700">{claim.id}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{claim.procedure}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${claim.amount ? claim.amount.toFixed(2) : 'N/A'}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm"><StatusBadge status={claim.status} /></td>
+                    {userType === 'insurer' && <td className="px-6 py-4 whitespace-nowrap text-sm"><RiskIndicator risk={claim.fraudRisk} /></td>}
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      <button onClick={() => setPage(userType === 'insurer' ? 'adminView' : 'claimStatus')} className="text-blue-600 hover:text-blue-800">View Details</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>
-  </div>
-);
+  );
+};
 
 const SubmitClaimPage = ({ setPage }) => {
     const [file, setFile] = useState(null);
