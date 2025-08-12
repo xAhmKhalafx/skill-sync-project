@@ -229,7 +229,6 @@ const SubmitClaimPage = ({ setPage }) => {
         phone: '',
         description: '',
     });
-    const [file, setFile] = useState(null);
     const [isUploading, setIsUploading] = useState(false);
     const [uploadStatus, setUploadStatus] = useState('');
 
@@ -239,12 +238,6 @@ const SubmitClaimPage = ({ setPage }) => {
             ...formData,
             [e.target.name]: e.target.value,
         });
-    };
-
-    const handleFileChange = (e) => {
-        if (e.target.files.length > 0) {
-            setFile(e.target.files[0]);
-        }
     };
 
     // This function now sends the form data to the backend for an AI prediction
