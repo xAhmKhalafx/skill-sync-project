@@ -272,7 +272,7 @@ const SubmitClaimPage = ({ setPage }) => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
                         <label className="block text-sm font-medium text-gray-700">Full Name</label>
-                        <input type="text" className="mt-1 block w-full px-6 py-4 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500" />
+                        <input type="text" className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500" />
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-700">Email Address</label>
