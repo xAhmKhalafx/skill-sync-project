@@ -268,20 +268,18 @@ const SubmitClaimPage = ({ setPage }) => {
         <div className="bg-white p-8 rounded-lg shadow-md border border-gray-200 max-w-3xl mx-auto">
             <h2 className="text-3xl font-bold text-gray-800 mb-6">Submit a New Claim</h2>
             <form onSubmit={handleSubmit} className="space-y-6">
-                {/* --- NEW FORM FIELDS --- */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700">Full Name</label>
-                        <input type="text" className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500" />
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700">Email Address</label>
-                        <input type="email" className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500" />
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700">Phone Number</label>
-                        <input type="tel" className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500" />
-                    </div>
+{/* --- FORM FIELDS --- */}
+                <div>
+                    <label className="block text-sm font-medium text-gray-700">Full Name</label>
+                    <input type="text" className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500" />
+                </div>
+                <div>
+                    <label className="block text-sm font-medium text-gray-700">Email Address</label>
+                    <input type="email" className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500" />
+                </div>
+                <div>
+                    <label className="block text-sm font-medium text-gray-700">Phone Number</label>
+                    <input type="tel" className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500" />
                 </div>
                 <div>
                     <label className="block text-sm font-medium text-gray-700">Claim Description</label>
