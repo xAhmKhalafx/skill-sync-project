@@ -222,40 +222,65 @@ const DashboardPage = ({ setPage, userType }) => {
 };
 
 const SubmitClaimPage = ({ setPage }) => {
+    // State to hold all the form data
+    const [formData, setFormData] = useState({
+        fullName: '',
+        email: '',
+        phone: '',
+        description: '',
+    });
     const [file, setFile] = useState(null);
     const [isUploading, setIsUploading] = useState(false);
     const [uploadStatus, setUploadStatus] = useState('');
 
+    // Update state when user types in a field
+    const handleInputChange = (e) => {
+        setFormData({
+            ...formData,
+            [e.target.name]: e.target.value,
+        });
+    };
+
     const handleFileChange = (e) => {
         if (e.target.files.length > 0) {
             setFile(e.target.files[0]);
-            setUploadStatus('');
         }
     };
 
+    // This function now sends the form data to the backend for an AI prediction
     const handleSubmit = async (e) => {
         e.preventDefault();
-        if (!file) {
-            setUploadStatus('Please select a file first.');
-            return;
-        }
         setIsUploading(true);
-        setUploadStatus('Submitting and processing...');
-        const formData = new FormData();
-        formData.append('file', file);
-        // NOTE: For the demo, we are still only sending the file.
-        // The AI's job is to extract and verify the info from the document.
+        setUploadStatus('Submitting claim for AI analysis...');
+
         try {
-            const response = await fetch('http://localhost:5001/api/submit', {
+            // NOTE: The new backend expects JSON data, not a file upload.
+            // We are sending the structured data from the form.
+            const response = await fetch('http://localhost:5001/predict', {
                 method: 'POST',
-                body: formData,
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    // The backend model expects these specific features.
+                    // We'll use dummy values for the demo where needed.
+                    age: 35, // Example value
+                    bmi: 22.5, // Example value
+                    children: 1, // Example value
+                    smoker: 0, // 0 for no, 1 for yes
+                    region: 2, // Example value
+                    // In a real app, you would collect these details.
+                }),
             });
+
             if (!response.ok) {
                 throw new Error('Server responded with an error.');
             }
+
             const result = await response.json();
-            setUploadStatus(`Success! Claim ${result.claim_id} submitted.`);
-            setFile(null); 
+            // Display the prediction from the AI model
+            setUploadStatus(`Success! AI Prediction: Your claim is likely to be ${result.prediction}.`);
+
         } catch (error) {
             console.error('Submission failed:', error);
             setUploadStatus('Submission failed. Please check the console and try again.');
@@ -268,47 +293,39 @@ const SubmitClaimPage = ({ setPage }) => {
         <div className="bg-white p-8 rounded-lg shadow-md border border-gray-200 max-w-3xl mx-auto">
             <h2 className="text-3xl font-bold text-gray-800 mb-6">Submit a New Claim</h2>
             <form onSubmit={handleSubmit} className="space-y-6">
-{/* --- FORM FIELDS --- */}
                 <div>
                     <label className="block text-sm font-medium text-gray-700">Full Name</label>
-                    <input type="text" className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500" />
+                    <input type="text" name="fullName" onChange={handleInputChange} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm" />
                 </div>
                 <div>
                     <label className="block text-sm font-medium text-gray-700">Email Address</label>
-                    <input type="email" className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500" />
+                    <input type="email" name="email" onChange={handleInputChange} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm" />
                 </div>
                 <div>
                     <label className="block text-sm font-medium text-gray-700">Phone Number</label>
-                    <input type="tel" className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500" />
+                    <input type="tel" name="phone" onChange={handleInputChange} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm" />
                 </div>
                 <div>
                     <label className="block text-sm font-medium text-gray-700">Claim Description</label>
-                    <textarea rows="4" className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"></textarea>
+                    <textarea rows="4" name="description" onChange={handleInputChange} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm"></textarea>
                 </div>
-                {/* --- END OF NEW FORM FIELDS --- */}
-
+                
                 <div>
-                    <label className="block text-sm font-medium text-gray-700">Attach Medical Bill / Document</label>
+                    <label className="block text-sm font-medium text-gray-700">Attach Medical Bill / Document (Optional)</label>
                     <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md">
-                        <div className="space-y-1 text-center">
-                            <FileText className="mx-auto h-12 w-12 text-gray-400" />
-                            <label htmlFor="file-upload" className="relative cursor-pointer bg-white rounded-md font-medium text-blue-600 hover:text-blue-500">
-                                <span>Upload a file</span>
-                                <input id="file-upload" name="file-upload" type="file" className="sr-only" onChange={handleFileChange} />
-                            </label>
-                            {file && <p className="mt-2 text-sm text-gray-500">Selected: {file.name}</p>}
-                        </div>
+                        {/* File upload is now optional as the main prediction comes from form data */}
+                        <input type="file" onChange={handleFileChange} />
                     </div>
                 </div>
 
                 {uploadStatus && (
-                    <div className="bg-green-100 border-green-500 text-green-700 p-4 rounded-md" role="alert">
-                        <p>{uploadStatus}</p>
+                    <div className="bg-blue-100 border-blue-500 text-blue-700 p-4 rounded-md" role="alert">
+                        <p className="font-bold">{uploadStatus}</p>
                     </div>
                 )}
                 
-                <button type="submit" disabled={!file || isUploading} className="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300">
-                    {isUploading ? 'Processing...' : 'Submit Claim'}
+                <button type="submit" disabled={isUploading} className="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300">
+                    {isUploading ? 'Analyzing with AI...' : 'Submit and Predict'}
                 </button>
             </form>
         </div>
