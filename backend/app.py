@@ -33,7 +33,12 @@ class Claim(db.Model):
             'amount': self.amount,
             'status': self.status
         }
-
+@app.cli.command("init-db")
+def init_db_command():
+    """Creates the database tables."""
+    db.create_all()
+    print("Initialized the database.")
+    
 # --- MAIN ROUTE (for testing) ---
 @app.route('/')
 def hello():
