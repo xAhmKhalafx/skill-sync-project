@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { FileText, CheckCircle, AlertTriangle, Clock, Shield } from 'lucide-react';
+import LoginPage from './components/LoginPage';
 
 // --- MOCK DATA ---
 // In a real application, this data would come from your Django backend API.
@@ -459,31 +460,43 @@ const AdminViewPage = ({ setPage }) => {
 // --- MAIN APP COMPONENT ---
 
 export default function App() {
-  const [page, setPage] = useState('dashboard'); // 'dashboard', 'submit', 'claimStatus', 'adminView'
-  const [userType, setUserType] = useState('policyholder'); // 'policyholder', 'insurer'
+    const [isAuthenticated, setIsAuthenticated] = useState(false); // --- NEW: Track if user is logged in ---
+    const [page, setPage] = useState('dashboard');
+    const [userType, setUserType] = useState('policyholder');
 
-  const renderPage = () => {
-    switch (page) {
-      case 'dashboard':
-        return <DashboardPage setPage={setPage} userType={userType} />;
-      case 'submit':
-        return <SubmitClaimPage setPage={setPage} />;
-      case 'claimStatus':
-        return <ClaimStatusPage setPage={setPage} />;
-      case 'adminView':
-        return <AdminViewPage setPage={setPage} />;
-      default:
-        return <DashboardPage setPage={setPage} userType={userType} />;
+    // This function will be called by LoginPage on a successful login
+    const handleLoginSuccess = (role) => {
+        setUserType(role); // Set the user's role from the backend
+        setIsAuthenticated(true); // Set authenticated to true
+    };
+
+    // If the user is not authenticated, show the login page
+    if (!isAuthenticated) {
+        return <LoginPage onLoginSuccess={handleLoginSuccess} />;
     }
-  };
 
-  return (
-    <div className="min-h-screen bg-gray-50 flex flex-col font-sans">
-      <Header setPage={setPage} userType={userType} setUserType={setUserType} />
-      <main className="flex-grow container mx-auto px-6 py-8">
-        {renderPage()}
-      </main>
-      <Footer />
-    </div>
-  );
+    const renderPage = () => {
+        switch (page) {
+            case 'dashboard':
+                return <DashboardPage setPage={setPage} userType={userType} />;
+            case 'submit':
+                return <SubmitClaimPage setPage={setPage} />;
+            case 'claimStatus':
+                return <ClaimStatusPage setPage={setPage} />;
+            case 'adminView':
+                return <AdminViewPage setPage={setPage} />;
+            default:
+                return <DashboardPage setPage={setPage} userType={userType} />;
+        }
+    };
+
+    return (
+        <div className="min-h-screen bg-gray-50 flex flex-col font-sans">
+            <Header setPage={setPage} userType={userType} setUserType={setUserType} />
+            <main className="flex-grow container mx-auto px-6 py-8">
+                {renderPage()}
+            </main>
+            <Footer />
+        </div>
+    );
 }
