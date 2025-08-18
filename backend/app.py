@@ -79,9 +79,23 @@ def get_claims():
 # --- Custom CLI Command ---
 @app.cli.command("init-db")
 def init_db_command():
-    """Creates the database tables."""
-    db.create_all()
-    print("Initialized the database with User and Claim tables.")
+    """Creates the database tables and adds test users."""
+    db.drop_all() # Clear existing tables
+    db.create_all() # Create new tables
+
+    # --- NEW: Add Test Users ---
+    # Create an insurer user
+    hashed_password_insurer = bcrypt.generate_password_hash('insurer123').decode('utf-8')
+    insurer_user = User(email='insurer@test.com', password=hashed_password_insurer, role='insurer')
+    db.session.add(insurer_user)
+
+    # Create a policyholder user
+    hashed_password_user = bcrypt.generate_password_hash('user123').decode('utf-8')
+    policyholder_user = User(email='user@test.com', password=hashed_password_user, role='policyholder')
+    db.session.add(policyholder_user)
+
+    db.session.commit()
+    print("Initialized the database and created test users.")
 
 if __name__ == '__main__':
     app.run(debug=True, port=5001)
