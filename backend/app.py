@@ -43,6 +43,7 @@ def extract_text_from_file(file_path: str) -> str:
     return text or ""
 
 # ---------- NLP parsing ----------
+# --- drop this in where your NLP helpers live (replaces the old nlp_parse_text) ---
 _amount_patterns = [
     r"Amount\s*Claimed[:\s]*\$?([\d,]+\.\d{2})",
     r"Claim\s*Amount[:\s]*\$?([\d,]+\.\d{2})",
@@ -52,13 +53,11 @@ _amount_patterns = [
     r"Total[:\s]*\$?([\d,]+\.\d{2})",
 ]
 
-def _grab_amount(text: str, keywords=("claimed","bill","billed","invoice","total","due")):
-    """Return the first amount found and a tag describing what it likely is."""
+def _grab_amount(text: str, keywords=("claim", "claimed", "bill", "billed", "invoice", "total", "due")):
     for rx in _amount_patterns:
         m = re.search(rx, text, flags=re.IGNORECASE)
         if m:
             amt = float(m.group(1).replace(",", ""))
-            # crude label based on nearby keyword
             window = 30
             s = m.start()
             ctx = text[max(0, s - window): s + window].lower()
@@ -67,46 +66,28 @@ def _grab_amount(text: str, keywords=("claimed","bill","billed","invoice","total
     return None, None
 
 def _grab_field(text: str, field: str):
-    """
-    Extract simple line-based fields like 'Diagnosis:' or 'Hospital:'.
-    Returns the value string or '' if not found.
-    """
     m = re.search(rf"{field}\s*:\s*(.+)$", text, flags=re.IGNORECASE | re.MULTILINE)
     return (m.group(1).strip() if m else "")
 
 def nlp_parse_text(text: str, full_name: str = "", hospital_hint: str = "") -> dict:
-    """
-    Parse basic fields:
-      - amounts: claimed & billed (if both detected)
-      - diagnosis text
-      - hospital name
-      - simple matches to compute features
-    """
-    claimed, claimed_tag = _grab_amount(text, keywords=("claim", "claimed"))
-    billed, billed_tag = _grab_amount(text, keywords=("bill", "billed", "invoice", "total", "due"))
-
-    # try to avoid the same number being used for both
-    if claimed is not None and billed is not None and abs(claimed - billed) < 1e-6:
-        # If both are exactly equal and tags are ambiguous, keep as is; dataset treats 'match_amount' separately
-        pass
+    """Parse amounts, diagnosis, hospital; compute simple match features."""
+    claimed, _ = _grab_amount(text, keywords=("claim", "claimed"))
+    billed, _  = _grab_amount(text, keywords=("bill", "billed", "invoice", "total", "due"))
 
     diagnosis = _grab_field(text, "Diagnosis")
-    hospital = _grab_field(text, "Hospital") or hospital_hint or ""
+    hospital  = _grab_field(text, "Hospital") or hospital_hint or ""
 
-    # Feature helpers
     diag_len = len(diagnosis.strip())
     hosp_len = len(hospital.strip())
-    match_amount = 1 if (claimed is not None and billed is not None and abs(claimed - billed) < 0.001) else 0
-    match_patient = 1 if (full_name and full_name.lower() in text.lower()) else 0
-    # If we have a hospital name, check presence; else fall back to the word 'hospital' occurrence
+    match_amount   = 1 if (claimed is not None and billed is not None and abs(claimed - billed) < 0.001) else 0
+    match_patient  = 1 if (full_name and full_name.lower() in text.lower()) else 0
     match_hospital = 1 if (hospital and hospital.lower() in text.lower()) else (1 if "hospital" in text.lower() else 0)
 
-    # Choose a "claim amount" default if only one amount is found
     amount_claim = claimed if claimed is not None else billed
-    amount_bill = billed if billed is not None else claimed
-    amount_diff = None
+    amount_bill  = billed  if billed  is not None else claimed
+    amount_diff  = None
     if amount_claim is not None and amount_bill is not None:
-        amount_diff = round(float(abs(amount_claim - amount_bill)), 2)
+        amount_diff = round(abs(amount_claim - amount_bill), 2)
 
     parsed = {
         "amount_claim": amount_claim,
@@ -117,14 +98,12 @@ def nlp_parse_text(text: str, full_name: str = "", hospital_hint: str = "") -> d
         "match_patient": match_patient,
         "match_hospital": match_hospital,
         "amount_diff": amount_diff,
-        # keep some raw fields for debugging
-        "diagnosis": diagnosis,
-        "hospital": hospital,
-        "claimed_tag": claimed_tag,
-        "billed_tag": billed_tag,
+        # keep the old key your DB expects:
+        "nlp_extracted_amount": amount_claim,
     }
     print(f"[NLP] Parsed: {parsed}")
     return parsed
+
 
 # ---------- Feature builder for your RF model ----------
 FEATURE_ORDER = [
