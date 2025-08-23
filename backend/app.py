@@ -7,6 +7,9 @@ from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 from flask_bcrypt import Bcrypt
+import warnings
+warnings.filterwarnings("ignore", message="X has feature names")
+
 
 # --- OCR AND DOCUMENT PROCESSING IMPORTS ---
 import pytesseract
@@ -268,6 +271,37 @@ def login():
         return jsonify({'message': 'Login successful!', 'role': user.role})
     return jsonify({'message': 'Login failed! Check email and password.'}), 401
 
+# ---- Compatibility wrapper so both old/new signatures work ----
+def nlp_parse_text_compat(text: str, full_name: str = "", hospital_hint: str = "") -> dict:
+    """
+    Calls nlp_parse_text() no matter which version you currently have.
+    If your nlp_parse_text(text) is the old one, we augment its result with
+    patient/hospital matches and amount_diff so fraud scoring still works.
+    """
+    try:
+        # Try the new-style call first
+        return nlp_parse_text(text, full_name=full_name, hospital_hint=hospital_hint)
+    except TypeError:
+        # Fall back to old signature: nlp_parse_text(text)
+        base = nlp_parse_text(text) or {}
+        # ensure keys exist
+        amount_claim = base.get("amount_claim")
+        amount_bill  = base.get("amount_bill")
+        # add matches
+        base["match_patient"]  = 1 if (full_name and full_name.lower() in text.lower()) else 0
+        base["match_hospital"] = 1 if ("hospital" in text.lower()) else 0 if base.get("match_hospital") is None else base["match_hospital"]
+        # compute amount_diff/match_amount if possible
+        if amount_claim is not None and amount_bill is not None:
+            base["amount_diff"]  = round(abs(float(amount_claim) - float(amount_bill)), 2)
+            base["match_amount"] = 1 if abs(float(amount_claim) - float(amount_bill)) < 0.001 else 0
+        else:
+            base.setdefault("amount_diff", 0)
+            base.setdefault("match_amount", 0)
+        # keep the field your DB expects if missing
+        base.setdefault("nlp_extracted_amount", amount_claim if amount_claim is not None else amount_bill)
+        return base
+
+
 @app.route('/api/submit', methods=['POST'])
 def submit_claim():
     full_name = request.form.get('fullName', '') or ''
@@ -292,7 +326,11 @@ def submit_claim():
 
     # OCR + NLP
     raw_text = extract_text_from_file(file_path)
-    parsed = nlp_parse_text(raw_text, full_name=full_name, hospital_hint='')
+    # old line that crashes:
+    # parsed = nlp_parse_text(raw_text, full_name=full_name, hospital_hint='')
+
+    # new robust line:
+    parsed = nlp_parse_text_compat(raw_text, full_name=full_name, hospital_hint='')
     # tie the UI 'amount' to parsed if missing
     if parsed.get("amount_claim") is None and amount is not None:
         parsed["amount_claim"] = float(amount)
@@ -334,12 +372,24 @@ def submit_claim():
     }), 201
 
 
-@app.route('/api/claims', methods=['GET'])
-def get_claims():
-    # This endpoint can be updated later to show more detail
-    all_claims = Claim.query.all()
-    claims_list = [{'id': c.claim_id_str, 'status': c.status, 'procedure': c.claim_description, 'amount': c.claim_amount} for c in all_claims]
-    return jsonify(claims_list)
+@app.route('/api/claims/<claim_id>', methods=['GET'])
+def get_claim(claim_id):
+    claim = Claim.query.filter_by(claim_id_str=claim_id).first()
+    if not claim:
+        return jsonify({'error': 'Claim not found'}), 404
+
+    return jsonify({
+        'id': claim.claim_id_str,
+        'full_name': claim.full_name,
+        'email': claim.email_address,
+        'phone': claim.phone_number,
+        'procedure': claim.claim_description,
+        'amount': claim.claim_amount,
+        'status': claim.status,
+        'ai_prediction': claim.ai_prediction,
+        'nlp_extracted_amount': claim.nlp_extracted_amount,
+        'created_at': claim.id  # or use a DateTime field if you add one
+    })
 
 # --- Custom CLI Command ---
 @app.cli.command("init-db")
