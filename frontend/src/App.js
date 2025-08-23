@@ -1,6 +1,6 @@
 import React, { useState } from "react";
-import { BrowserRouter, Routes, Route, Navigate, Link, useNavigate } from "react-router-dom";
-import { Shield, LogIn, FileText, PlusCircle, LayoutDashboard } from "lucide-react";
+import { BrowserRouter, Routes, Route, Navigate, Link } from "react-router-dom";
+import { Shield, LogIn, PlusCircle, LayoutDashboard } from "lucide-react";
 
 import LoginPage from "./components/LoginPage";
 import DashboardPage from "./components/DashboardPage";
@@ -49,7 +49,7 @@ function Footer() {
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [role, setRole] = useState("policyholder"); // or 'insurer'
+  const [role, setRole] = useState("policyholder");
 
   const handleLoginSuccess = (r) => {
     setRole(r || "policyholder");
