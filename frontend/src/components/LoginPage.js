@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Shield } from "lucide-react";
 import { api } from "../api";
-import { saveAuth, getRole } from "../auth";
+import { saveAuth } from "../auth";
 import { useNavigate, useLocation } from "react-router-dom";
 
 export default function LoginPage({ onAuthChange }) {

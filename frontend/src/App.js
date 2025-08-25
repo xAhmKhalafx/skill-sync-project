@@ -80,8 +80,8 @@ function RoleRoute({ children, allow }) {
 
 export default function App() {
   const [authedVersion, setAuthedVersion] = useState(0); // trigger re-render on login/logout
-  const role = useMemo(() => getRole(), [authedVersion]);
-  const token = useMemo(() => getToken(), [authedVersion]);
+  const role = getRole();
+  const token = getToken();
   const isAuthenticated = !!token || !!role;
 
   const handleLogout = () => {
