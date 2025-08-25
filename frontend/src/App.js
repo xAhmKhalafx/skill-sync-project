@@ -38,8 +38,8 @@ function Header({ isAuthenticated, role, onLogout }) {
               <LogIn className="w-4 h-4 rotate-180" /> Logout
             </button>
           ) : (
-            <Link to="/login" className="text-sm text-gray-700 hover:text-gray-900 flex items-center gap-1">
-              <LogIn className="w-4 h-4" /> Login
+            <Link to="/login" className="text-sm text-red-600 hover:text-red-700 flex items-center gap-1">
+              <LogIn className="w-4 h-4" /> Logout
             </Link>
           )}
         </nav>
