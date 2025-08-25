@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Shield } from "lucide-react";
+import { api } from "../api";   // <-- use shared API helper
 
 function LoginPage({ onLoginSuccess }) {
   const [email, setEmail] = useState("");
@@ -10,20 +11,14 @@ function LoginPage({ onLoginSuccess }) {
     e.preventDefault();
     setError("");
     try {
-      const response = await fetch("http://localhost:5001/api/login", {
+      const data = await api("/api/login", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: { email, password },
       });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.message || "Login failed");
-      }
-      // If you add JWT later, store it here:
       if (data.access_token) localStorage.setItem("token", data.access_token);
       onLoginSuccess(data.role);
     } catch (err) {
-      setError(err.message);
+      setError(err.message || "Login failed");
     }
   };
 
