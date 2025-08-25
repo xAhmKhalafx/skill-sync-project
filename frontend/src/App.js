@@ -1,13 +1,15 @@
-import React, { useState } from "react";
-import { BrowserRouter, Routes, Route, Navigate, Link } from "react-router-dom";
-import { Shield, LogIn, PlusCircle, LayoutDashboard } from "lucide-react";
-
+import React, { useMemo, useState } from "react";
+import { BrowserRouter, Routes, Route, Navigate, Link, useLocation } from "react-router-dom";
+import { Shield, LogIn, LayoutDashboard, PlusCircle } from "lucide-react";
 import LoginPage from "./components/LoginPage";
-import DashboardPage from "./components/DashboardPage";
+import UserDashboardPage from "./components/UserDashboardPage";
 import SubmitClaimPage from "./components/SubmitClaimPage";
 import ClaimDetailsPage from "./components/ClaimDetailsPage";
+import InsurerDashboardPage from "./components/InsurerDashboardPage";
+import InsurerClaimDetailsPage from "./components/InsurerClaimDetailsPage";
+import { getRole, getToken, clearAuth } from "./auth";
 
-function Header({ isAuthenticated, onLogout }) {
+function Header({ isAuthenticated, role, onLogout }) {
   return (
     <header className="bg-white border-b sticky top-0 z-10">
       <div className="container mx-auto px-6 py-4 flex items-center justify-between">
@@ -16,14 +18,27 @@ function Header({ isAuthenticated, onLogout }) {
           <span className="font-semibold text-lg">AI Claims</span>
         </Link>
         <nav className="flex items-center gap-4">
-          <Link to="/" className="text-sm text-gray-700 hover:text-gray-900 flex items-center gap-1">
-            <LayoutDashboard className="w-4 h-4" /> Dashboard
-          </Link>
-          <Link to="/submit" className="text-sm text-gray-700 hover:text-gray-900 flex items-center gap-1">
-            <PlusCircle className="w-4 h-4" /> Submit Claim
-          </Link>
+          {role === "insurer" ? (
+            <>
+              <Link to="/insurer/dashboard" className="text-sm text-gray-700 hover:text-gray-900 flex items-center gap-1">
+                <LayoutDashboard className="w-4 h-4" /> Insurer Dashboard
+              </Link>
+            </>
+          ) : (
+            <>
+              <Link to="/user/dashboard" className="text-sm text-gray-700 hover:text-gray-900 flex items-center gap-1">
+                <LayoutDashboard className="w-4 h-4" /> Dashboard
+              </Link>
+              <Link to="/user/submit" className="text-sm text-gray-700 hover:text-gray-900 flex items-center gap-1">
+                <PlusCircle className="w-4 h-4" /> Submit Claim
+              </Link>
+            </>
+          )}
           {isAuthenticated ? (
-            <button onClick={onLogout} className="text-sm text-red-600 hover:text-red-700 flex items-center gap-1">
+            <button
+              onClick={onLogout}
+              className="text-sm text-red-600 hover:text-red-700 flex items-center gap-1"
+            >
               <LogIn className="w-4 h-4 rotate-180" /> Logout
             </button>
           ) : (
@@ -47,38 +62,108 @@ function Footer() {
   );
 }
 
-export default function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [role, setRole] = useState("policyholder");
+function ProtectedRoute({ children }) {
+  const authed = !!getToken() || !!getRole(); // if you add JWT, prefer token check
+  const location = useLocation();
+  if (!authed) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  return children;
+}
 
-  const handleLoginSuccess = (r) => {
-    setRole(r || "policyholder");
-    setIsAuthenticated(true);
-  };
+function RoleRoute({ children, allow }) {
+  const role = getRole();
+  if (!allow.includes(role)) {
+    // bounce to the correct home
+    return <Navigate to={role === "insurer" ? "/insurer/dashboard" : "/user/dashboard"} replace />;
+  }
+  return children;
+}
+
+export default function App() {
+  const [authedVersion, setAuthedVersion] = useState(0); // trigger re-render on login/logout
+  const role = useMemo(() => getRole(), [authedVersion]);
+  const token = useMemo(() => getToken(), [authedVersion]);
+  const isAuthenticated = !!token || !!role;
+
   const handleLogout = () => {
-    setIsAuthenticated(false);
-    setRole("policyholder");
-    localStorage.removeItem("token");
+    clearAuth();
+    setAuthedVersion((v) => v + 1);
   };
 
   return (
     <BrowserRouter>
-      <Header isAuthenticated={isAuthenticated} onLogout={handleLogout} />
+      <Header isAuthenticated={isAuthenticated} role={role} onLogout={handleLogout} />
       <main className="container mx-auto px-6 py-8">
         <Routes>
-          <Route path="/" element={<DashboardPage role={role} />} />
-          <Route path="/submit" element={<SubmitClaimPage />} />
-          <Route path="/claim/:claimId" element={<ClaimDetailsPage />} />
+          {/* Landing → send to appropriate dashboard if authed, else login */}
           <Route
-            path="/login"
+            path="/"
             element={
               isAuthenticated ? (
-                <Navigate to="/" replace />
+                <Navigate to={role === "insurer" ? "/insurer/dashboard" : "/user/dashboard"} replace />
               ) : (
-                <LoginPage onLoginSuccess={handleLoginSuccess} />
+                <Navigate to="/login" replace />
               )
             }
           />
+
+          {/* Auth */}
+          <Route path="/login" element={<LoginPage onAuthChange={() => setAuthedVersion((v) => v + 1)} />} />
+
+          {/* Policyholder routes */}
+          <Route
+            path="/user/dashboard"
+            element={
+              <ProtectedRoute>
+                <RoleRoute allow={["policyholder"]}>
+                  <UserDashboardPage />
+                </RoleRoute>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/user/submit"
+            element={
+              <ProtectedRoute>
+                <RoleRoute allow={["policyholder"]}>
+                  <SubmitClaimPage />
+                </RoleRoute>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/user/claim/:claimId"
+            element={
+              <ProtectedRoute>
+                <RoleRoute allow={["policyholder"]}>
+                  <ClaimDetailsPage />
+                </RoleRoute>
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Insurer routes */}
+          <Route
+            path="/insurer/dashboard"
+            element={
+              <ProtectedRoute>
+                <RoleRoute allow={["insurer"]}>
+                  <InsurerDashboardPage />
+                </RoleRoute>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/insurer/claim/:claimId"
+            element={
+              <ProtectedRoute>
+                <RoleRoute allow={["insurer"]}>
+                  <InsurerClaimDetailsPage />
+                </RoleRoute>
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Fallback */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

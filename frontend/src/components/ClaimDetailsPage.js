@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { api } from "../api";
+import { getToken } from "../auth";
 import { CheckCircle, AlertTriangle } from "lucide-react";
 
 function StatusLabel({ status }) {
@@ -17,8 +18,7 @@ export default function ClaimDetailsPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    api(`/api/claims/${encodeURIComponent(claimId)}`, { token })
+    api(`/api/claims/${encodeURIComponent(claimId)}`, { token: getToken() })
       .then(setClaim)
       .catch((e) => setError(e.message));
   }, [claimId]);
@@ -28,37 +28,34 @@ export default function ClaimDetailsPage() {
 
   return (
     <div className="space-y-6">
-      <Link to="/" className="text-blue-600 hover:text-blue-800">← Back to Dashboard</Link>
+      <Link to="/user/dashboard" className="text-blue-600 hover:text-blue-800">← Back to Dashboard</Link>
 
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
         <h1 className="text-2xl font-bold mb-4">Claim Details</h1>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="bg-gray-50 rounded p-4">
-            <div className="text-xs text-gray-500">Claim ID</div>
-            <div className="text-lg font-semibold font-mono">{claim.id}</div>
-          </div>
-          <div className="bg-gray-50 rounded p-4">
-            <div className="text-xs text-gray-500">Procedure</div>
-            <div className="text-lg font-semibold">{claim.procedure || "—"}</div>
-          </div>
-          <div className="bg-gray-50 rounded p-4">
-            <div className="text-xs text-gray-500">Amount</div>
-            <div className="text-lg font-semibold">${Number(claim.amount || 0).toFixed(2)}</div>
-          </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <InfoCard title="Claim ID" value={<span className="font-mono">{claim.id}</span>} />
+          <InfoCard title="Procedure" value={claim.procedure || "—"} />
+          <InfoCard title="Amount" value={`$${Number(claim.amount || 0).toFixed(2)}`} />
+          <InfoCard title="Status" value={<StatusLabel status={claim.status} />} />
         </div>
 
-        <div className="mt-6">
-          <div className="text-sm text-gray-500 mb-1">Processing Status</div>
-          <div className="text-base font-medium"><StatusLabel status={claim.status} /></div>
-        </div>
-
-        <div className="mt-6 text-sm text-gray-600">
-          <div><span className="font-medium">Prediction:</span> {claim.ai_prediction || claim.status}</div>
+        <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-gray-700">
+          <InfoCard title="Prediction" value={claim.ai_prediction || claim.status} />
           {claim.nlp_extracted_amount != null && (
-            <div><span className="font-medium">NLP Extracted Amount:</span> ${Number(claim.nlp_extracted_amount).toFixed(2)}</div>
+            <InfoCard title="NLP Extracted Amount" value={`$${Number(claim.nlp_extracted_amount).toFixed(2)}`} />
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function InfoCard({ title, value }) {
+  return (
+    <div className="bg-gray-50 rounded-lg p-4">
+      <div className="text-xs text-gray-500">{title}</div>
+      <div className="text-lg font-semibold">{value}</div>
     </div>
   );
 }

@@ -8,7 +8,6 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from flask_bcrypt import Bcrypt
-from sqlalchemy.exc import OperationalError
 
 import joblib
 import pandas as pd
@@ -390,6 +389,9 @@ def init_db_command():
     db.session.commit()
     print("Initialized the database and ensured demo users exist.")
 
+# --- one-time DB init/seed for new environments (App Runner/Rails/Render) ---
+from sqlalchemy.exc import OperationalError
+
 def ensure_db_seed():
     with app.app_context():
         try:
@@ -406,7 +408,9 @@ def ensure_db_seed():
         except OperationalError as e:
             print(f"[DB] init error: {e}")
 
+# call it at import/startup so it runs in App Runner
 ensure_db_seed()
+
 # ===========
 # Entrypoint
 # ===========

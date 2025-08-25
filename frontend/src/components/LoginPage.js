@@ -1,11 +1,15 @@
 import React, { useState } from "react";
 import { Shield } from "lucide-react";
-import { api } from "../api";   // <-- use shared API helper
+import { api } from "../api";
+import { saveAuth, getRole } from "../auth";
+import { useNavigate, useLocation } from "react-router-dom";
 
-function LoginPage({ onLoginSuccess }) {
+export default function LoginPage({ onAuthChange }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const navigate = useNavigate();
+  const location = useLocation();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -15,45 +19,54 @@ function LoginPage({ onLoginSuccess }) {
         method: "POST",
         body: { email, password },
       });
-      if (data.access_token) localStorage.setItem("token", data.access_token);
-      onLoginSuccess(data.role);
+      // If you later add JWT, backend can return access_token
+      saveAuth({ token: data.access_token || "session", role: data.role, email });
+      onAuthChange?.();
+      const dest = location.state?.from;
+      if (dest) return navigate(dest, { replace: true });
+      navigate(data.role === "insurer" ? "/insurer/dashboard" : "/user/dashboard", { replace: true });
     } catch (err) {
       setError(err.message || "Login failed");
     }
   };
 
   return (
-    <div className="flex items-center justify-center min-h-[70vh]">
-      <div className="p-8 max-w-md w-full bg-white rounded-lg shadow-md">
+    <div className="min-h-[70vh] flex items-center justify-center">
+      <div className="w-full max-w-md bg-white rounded-2xl shadow-lg p-8">
         <div className="flex justify-center mb-6">
-          <Shield className="w-12 h-12 text-blue-600" />
+          <div className="w-14 h-14 rounded-full bg-blue-50 flex items-center justify-center">
+            <Shield className="w-8 h-8 text-blue-600" />
+          </div>
         </div>
-        <h2 className="text-2xl font-bold text-center text-gray-800 mb-6">Sign In</h2>
-        {error && <p className="bg-red-100 text-red-700 p-3 rounded-md mb-4">{error}</p>}
-        <form onSubmit={handleSubmit}>
-          <div className="mb-4">
-            <label className="block text-gray-700 text-sm font-bold mb-2">Email Address</label>
+        <h2 className="text-2xl font-bold text-center text-gray-900 mb-6">Sign In</h2>
+        {error && <p className="bg-red-100 text-red-700 p-3 rounded-md mb-4 text-center">{error}</p>}
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm text-gray-700 font-medium mb-1">Email Address</label>
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="you@example.com"
               required
             />
           </div>
-          <div className="mb-6">
-            <label className="block text-gray-700 text-sm font-bold mb-2">Password</label>
+          <div>
+            <label className="block text-sm text-gray-700 font-medium mb-1">Password</label>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="••••••••"
               required
             />
           </div>
           <button
             type="submit"
-            className="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-xl transition-colors"
           >
             Sign In
           </button>
@@ -62,5 +75,3 @@ function LoginPage({ onLoginSuccess }) {
     </div>
   );
 }
-
-export default LoginPage;

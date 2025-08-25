@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { CheckCircle, AlertTriangle } from "lucide-react";
 import { api } from "../api";
+import { getToken } from "../auth";
+import { CheckCircle, AlertTriangle } from "lucide-react";
 
 function StatusPill({ status }) {
   const ok = String(status).toLowerCase() === "approved";
@@ -12,24 +13,31 @@ function StatusPill({ status }) {
   return <span className={`${base} bg-gray-100 text-gray-700`}>Processing</span>;
 }
 
-export default function DashboardPage() {
+export default function UserDashboardPage() {
   const [claims, setClaims] = useState([]);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    api("/api/claims", { token })
+    api("/api/claims", { token: getToken() })
       .then(setClaims)
       .catch((e) => setError(e.message));
   }, []);
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Recent Claims</h1>
+      <div className="flex items-end justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Your Claims</h1>
+          <p className="text-gray-500">Track and review your submitted claims.</p>
+        </div>
+        <Link to="/user/submit" className="bg-blue-600 hover:bg-blue-700 text-white text-sm px-3 py-2 rounded-lg">
+          Submit New Claim
+        </Link>
+      </div>
 
       {error && <div className="bg-red-100 text-red-700 p-3 rounded">{error}</div>}
 
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
@@ -49,7 +57,7 @@ export default function DashboardPage() {
                   <td className="px-6 py-4 whitespace-nowrap">${Number(c.amount || 0).toFixed(2)}</td>
                   <td className="px-6 py-4 whitespace-nowrap"><StatusPill status={c.status} /></td>
                   <td className="px-6 py-4 whitespace-nowrap text-right">
-                    <Link to={`/claim/${encodeURIComponent(c.id)}`} className="text-blue-600 hover:text-blue-800">
+                    <Link to={`/user/claim/${encodeURIComponent(c.id)}`} className="text-blue-600 hover:text-blue-800">
                       View Details
                     </Link>
                   </td>
