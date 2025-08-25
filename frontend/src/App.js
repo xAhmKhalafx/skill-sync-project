@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useState } from "react";
 import { BrowserRouter, Routes, Route, Navigate, Link, useLocation } from "react-router-dom";
 import { Shield, LogIn, LayoutDashboard, PlusCircle } from "lucide-react";
 import LoginPage from "./components/LoginPage";
@@ -79,16 +79,16 @@ function RoleRoute({ children, allow }) {
 }
 
 export default function App() {
-  const [authedVersion, setAuthedVersion] = useState(0); // trigger re-render on login/logout
-  const role = getRole();
-  const token = getToken();
+  const role = getRole();           // read directly
+  const token = getToken();         // read directly
   const isAuthenticated = !!token || !!role;
 
   const handleLogout = () => {
     clearAuth();
-    setAuthedVersion((v) => v + 1);
+    // ensure UI updates immediately in production without local state
+    window.location.assign("/login");
   };
-
+  
   return (
     <BrowserRouter>
       <Header isAuthenticated={isAuthenticated} role={role} onLogout={handleLogout} />
