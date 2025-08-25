@@ -1,6 +1,7 @@
-import React, { useState } from "react";
-import { BrowserRouter, Routes, Route, Navigate, Link, useLocation } from "react-router-dom";
+import React from "react";
+import { BrowserRouter, Routes, Route, Navigate, Link } from "react-router-dom";
 import { Shield, LogIn, LayoutDashboard, PlusCircle } from "lucide-react";
+
 import LoginPage from "./components/LoginPage";
 import UserDashboardPage from "./components/UserDashboardPage";
 import SubmitClaimPage from "./components/SubmitClaimPage";
@@ -19,11 +20,9 @@ function Header({ isAuthenticated, role, onLogout }) {
         </Link>
         <nav className="flex items-center gap-4">
           {role === "insurer" ? (
-            <>
-              <Link to="/insurer/dashboard" className="text-sm text-gray-700 hover:text-gray-900 flex items-center gap-1">
-                <LayoutDashboard className="w-4 h-4" /> Insurer Dashboard
-              </Link>
-            </>
+            <Link to="/insurer/dashboard" className="text-sm text-gray-700 hover:text-gray-900 flex items-center gap-1">
+              <LayoutDashboard className="w-4 h-4" /> Insurer Dashboard
+            </Link>
           ) : (
             <>
               <Link to="/user/dashboard" className="text-sm text-gray-700 hover:text-gray-900 flex items-center gap-1">
@@ -35,10 +34,7 @@ function Header({ isAuthenticated, role, onLogout }) {
             </>
           )}
           {isAuthenticated ? (
-            <button
-              onClick={onLogout}
-              className="text-sm text-red-600 hover:text-red-700 flex items-center gap-1"
-            >
+            <button onClick={onLogout} className="text-sm text-red-600 hover:text-red-700 flex items-center gap-1">
               <LogIn className="w-4 h-4 rotate-180" /> Logout
             </button>
           ) : (
@@ -63,38 +59,34 @@ function Footer() {
 }
 
 function ProtectedRoute({ children }) {
-  const authed = !!getToken() || !!getRole(); // if you add JWT, prefer token check
-  const location = useLocation();
-  if (!authed) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  const authed = !!getToken() || !!getRole();
+  if (!authed) return <Navigate to="/login" replace />;
   return children;
 }
 
 function RoleRoute({ children, allow }) {
   const role = getRole();
   if (!allow.includes(role)) {
-    // bounce to the correct home
     return <Navigate to={role === "insurer" ? "/insurer/dashboard" : "/user/dashboard"} replace />;
   }
   return children;
 }
 
 export default function App() {
-  const role = getRole();           // read directly
-  const token = getToken();         // read directly
+  const role = getRole();
+  const token = getToken();
   const isAuthenticated = !!token || !!role;
 
   const handleLogout = () => {
     clearAuth();
-    // ensure UI updates immediately in production without local state
     window.location.assign("/login");
   };
-  
+
   return (
     <BrowserRouter>
       <Header isAuthenticated={isAuthenticated} role={role} onLogout={handleLogout} />
       <main className="container mx-auto px-6 py-8">
         <Routes>
-          {/* Landing → send to appropriate dashboard if authed, else login */}
           <Route
             path="/"
             element={
@@ -105,11 +97,10 @@ export default function App() {
               )
             }
           />
-
           {/* Auth */}
-          <Route path="/login" element={<LoginPage onAuthChange={() => setAuthedVersion((v) => v + 1)} />} />
+          <Route path="/login" element={<LoginPage />} />
 
-          {/* Policyholder routes */}
+          {/* Policyholder */}
           <Route
             path="/user/dashboard"
             element={
@@ -141,7 +132,7 @@ export default function App() {
             }
           />
 
-          {/* Insurer routes */}
+          {/* Insurer */}
           <Route
             path="/insurer/dashboard"
             element={
@@ -163,7 +154,6 @@ export default function App() {
             }
           />
 
-          {/* Fallback */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

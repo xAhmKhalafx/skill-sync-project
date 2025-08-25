@@ -4,7 +4,7 @@ import { api } from "../api";
 import { saveAuth } from "../auth";
 import { useNavigate, useLocation } from "react-router-dom";
 
-export default function LoginPage({ onAuthChange }) {
+export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -19,9 +19,7 @@ export default function LoginPage({ onAuthChange }) {
         method: "POST",
         body: { email, password },
       });
-      // If you later add JWT, backend can return access_token
       saveAuth({ token: data.access_token || "session", role: data.role, email });
-      onAuthChange?.();
       const dest = location.state?.from;
       if (dest) return navigate(dest, { replace: true });
       navigate(data.role === "insurer" ? "/insurer/dashboard" : "/user/dashboard", { replace: true });
