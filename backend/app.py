@@ -8,6 +8,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from flask_bcrypt import Bcrypt
+from sqlalchemy.exc import OperationalError
 
 import joblib
 import pandas as pd
@@ -389,7 +390,23 @@ def init_db_command():
     db.session.commit()
     print("Initialized the database and ensured demo users exist.")
 
+def ensure_db_seed():
+    with app.app_context():
+        try:
+            db.create_all()
+            # seed users if none exist
+            if not User.query.first():
+                from flask_bcrypt import Bcrypt
+                bcrypt = Bcrypt(app)
+                u1 = User(email='user@test.com', password=bcrypt.generate_password_hash('user123').decode('utf-8'), role='policyholder')
+                u2 = User(email='insurer@test.com', password=bcrypt.generate_password_hash('insurer123').decode('utf-8'), role='insurer')
+                db.session.add_all([u1, u2])
+                db.session.commit()
+                print("[DB] Created tables and seeded default users.")
+        except OperationalError as e:
+            print(f"[DB] init error: {e}")
 
+ensure_db_seed()
 # ===========
 # Entrypoint
 # ===========
