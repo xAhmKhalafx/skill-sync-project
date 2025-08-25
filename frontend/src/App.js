@@ -73,9 +73,9 @@ function RoleRoute({ children, allow }) {
 }
 
 export default function App() {
-  const role = getRole();
-  const token = getToken();
-  const isAuthenticated = !!token || !!role;
+const token = getToken();
+const role = token ? getRole() : null;   // only load role if authed
+const isAuthenticated = !!token;
 
   const handleLogout = () => {
     clearAuth();

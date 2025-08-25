@@ -12,7 +12,7 @@ export function getToken() {
   return localStorage.getItem("token");
 }
 export function getRole() {
-  return localStorage.getItem("role") || "policyholder";
+  return localStorage.getItem("role") || null;
 }
 export function isAuthed() {
   return !!getRole(); // if you add JWT later, check token as well
