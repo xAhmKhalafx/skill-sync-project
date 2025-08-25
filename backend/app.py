@@ -1,31 +1,103 @@
 import os
-import time
 import re
+import time
+import uuid
+import warnings
+
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+from flask_sqlalchemy import SQLAlchemy
+from flask_bcrypt import Bcrypt
+
 import joblib
 import pandas as pd
-from flask import Flask, request, jsonify
-from flask_sqlalchemy import SQLAlchemy
-from flask_cors import CORS
-from flask_bcrypt import Bcrypt
-import warnings
-warnings.filterwarnings("ignore", message="X has feature names")
 
-
-# --- OCR AND DOCUMENT PROCESSING IMPORTS ---
+# OCR / files
 import pytesseract
 from PIL import Image
 import fitz  # PyMuPDF
-import uuid
 from werkzeug.utils import secure_filename
 
+
+# ===============================
+# App & Config (create app FIRST)
+# ===============================
+app = Flask(__name__)
+
+# Environment-driven config
+DEFAULT_DB = "sqlite:////tmp/claims.db"  # container-friendly default
+app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", DEFAULT_DB)
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+app.config["MAX_CONTENT_LENGTH"] = int(os.getenv("MAX_CONTENT_LENGTH_MB", "10")) * 1024 * 1024  # 10 MB default
+
+# CORS: allow local dev + Netlify (override with CORS_ORIGINS env: comma-separated)
+cors_origins = os.getenv(
+    "CORS_ORIGINS",
+    "http://localhost:3000,http://127.0.0.1:3000,https://skill-sync-ai-health-claim.netlify.app"
+)
+CORS(app, resources={r"/api/*": {"origins": [o.strip() for o in cors_origins.split(",") if o.strip()]}})
+
+# Extensions
+db = SQLAlchemy(app)
+bcrypt = Bcrypt(app)
+
+# Quiet a harmless sklearn warning
+warnings.filterwarnings("ignore", message="X has feature names")
+
+# Tesseract path (inside Docker it’s /usr/bin/tesseract)
+try:
+    pytesseract.pytesseract.tesseract_cmd = os.getenv("TESSERACT_CMD", pytesseract.pytesseract.tesseract_cmd)
+except Exception as _e:
+    print("[OCR] Tesseract setup note:", _e)
+
+
+# ===========
+# DB Models
+# ===========
+class User(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(120), unique=True, nullable=False)
+    password = db.Column(db.String(200), nullable=False)
+    role = db.Column(db.String(20), nullable=False, default="policyholder")
+
+
+class Claim(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    claim_id_str = db.Column(db.String(100), unique=True, nullable=False)
+    full_name = db.Column(db.String(100), nullable=True)
+    email_address = db.Column(db.String(100), nullable=True)
+    phone_number = db.Column(db.String(20), nullable=True)
+    claim_amount = db.Column(db.Float, nullable=True)
+    claim_description = db.Column(db.Text, nullable=True)
+    nlp_extracted_amount = db.Column(db.Float, nullable=True)
+    ai_prediction = db.Column(db.String(50), nullable=True)
+    status = db.Column(db.String(50), nullable=False, default="Processing")
+    file_path = db.Column(db.String(300), nullable=True)
+
+
+# =======================
+# Model load (RandomForest)
+# =======================
+model = None
+try:
+    model = joblib.load(os.path.join(os.path.dirname(__file__), "models", "rf_model.pkl"))
+    print("AI model loaded successfully.")
+except FileNotFoundError:
+    print("AI model not found. Prediction will use heuristics.")
+except Exception as e:
+    print(f"AI model load error: {e}")
+
+
+# =======================
+# Helpers: uploads & OCR
+# =======================
 ALLOWED_EXTENSIONS = {"pdf", "png", "jpg", "jpeg"}
 
 def allowed_file(filename: str) -> bool:
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
 
-# ---------- OCR ----------
 def extract_text_from_file(file_path: str) -> str:
-    """Prefer digital text for PDFs. Fallback to OCR for image-only PDFs/images."""
+    """Prefer digital text for PDFs; fallback to OCR for image-only pages or images."""
     text = ""
     try:
         if file_path.lower().endswith(".pdf"):
@@ -35,18 +107,20 @@ def extract_text_from_file(file_path: str) -> str:
                     if page_text and page_text.strip():
                         text += page_text + "\n"
                     else:
-                        # rasterize page and OCR
                         pix = page.get_pixmap(dpi=300)
                         img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
                         text += pytesseract.image_to_string(img) + "\n"
         else:
             text = pytesseract.image_to_string(Image.open(file_path))
+        print("--- Text extracted successfully ---")
     except Exception as e:
         print(f"[OCR] Error extracting text: {e}")
     return text or ""
 
-# ---------- NLP parsing ----------
-# --- drop this in where your NLP helpers live (replaces the old nlp_parse_text) ---
+
+# ===========================
+# NLP parsing & feature build
+# ===========================
 _amount_patterns = [
     r"Amount\s*Claimed[:\s]*\$?([\d,]+\.\d{2})",
     r"Claim\s*Amount[:\s]*\$?([\d,]+\.\d{2})",
@@ -73,7 +147,7 @@ def _grab_field(text: str, field: str):
     return (m.group(1).strip() if m else "")
 
 def nlp_parse_text(text: str, full_name: str = "", hospital_hint: str = "") -> dict:
-    """Parse amounts, diagnosis, hospital; compute simple match features."""
+    """Preferred new signature: parse amounts, diagnosis, hospital; compute matches & diffs."""
     claimed, _ = _grab_amount(text, keywords=("claim", "claimed"))
     billed, _  = _grab_amount(text, keywords=("bill", "billed", "invoice", "total", "due"))
 
@@ -101,52 +175,63 @@ def nlp_parse_text(text: str, full_name: str = "", hospital_hint: str = "") -> d
         "match_patient": match_patient,
         "match_hospital": match_hospital,
         "amount_diff": amount_diff,
-        # keep the old key your DB expects:
+        "diagnosis": diagnosis,
+        "hospital": hospital,
         "nlp_extracted_amount": amount_claim,
     }
     print(f"[NLP] Parsed: {parsed}")
     return parsed
 
+def nlp_parse_text_compat(text: str, full_name: str = "", hospital_hint: str = "") -> dict:
+    """Compatibility wrapper so old nlp_parse_text(text) also works if still present somewhere."""
+    try:
+        return nlp_parse_text(text, full_name=full_name, hospital_hint=hospital_hint)
+    except TypeError:
+        base = nlp_parse_text(text) if callable(nlp_parse_text) else {}
+        base = base or {}
+        amount_claim = base.get("amount_claim")
+        amount_bill  = base.get("amount_bill")
+        base["match_patient"]  = 1 if (full_name and full_name.lower() in text.lower()) else 0
+        base["match_hospital"] = 1 if ("hospital" in text.lower()) else 0 if base.get("match_hospital") is None else base["match_hospital"]
+        if amount_claim is not None and amount_bill is not None:
+            base["amount_diff"]  = round(abs(float(amount_claim) - float(amount_bill)), 2)
+            base["match_amount"] = 1 if abs(float(amount_claim) - float(amount_bill)) < 0.001 else 0
+        else:
+            base.setdefault("amount_diff", 0)
+            base.setdefault("match_amount", 0)
+        base.setdefault("nlp_extracted_amount", amount_claim if amount_claim is not None else amount_bill)
+        return base
 
-# ---------- Feature builder for your RF model ----------
 FEATURE_ORDER = [
     "amount_claim", "amount_bill", "diag_len", "hosp_len",
     "match_amount", "match_patient", "match_hospital", "amount_diff"
 ]
 
 def build_features(parsed: dict) -> pd.DataFrame:
-    """Build a one-row DataFrame with the exact feature columns your RF expects."""
     row = {}
     for col in FEATURE_ORDER:
         val = parsed.get(col)
-        # Fallbacks: numeric zeros are okay for demo; you can refine later
-        if val is None:
+        if val is None:  # conservative fill
             val = 0
         row[col] = [val]
     return pd.DataFrame(row)
 
-# ---------- Model prediction + rules ----------
 def predict_claim_with_model(parsed: dict):
-    """
-    Try RF model; if not available or errors, fall back to simple rules.
-    Return (decision, reason).
-    """
-    # 1) simple fraud heuristics (used as fallback and tie-breaker)
+    """Use RF model when available; blend with simple fraud rules."""
+    # simple heuristics
     fraud_score = 0
-    if parsed.get("amount_diff", 0) > 50:  # large difference between billed and claimed
+    if parsed.get("amount_diff", 0) > 50:
         fraud_score += 1
     if parsed.get("match_patient", 0) == 0:
         fraud_score += 1
     if parsed.get("match_hospital", 0) == 0:
         fraud_score += 1
 
-    # 2) model
     if model is not None:
         try:
             X = build_features(parsed)
             y = model.predict(X)
             model_ok = int(y[0]) == 1
-            # if model rejects OR fraud_score high, reject
             if not model_ok:
                 return "Rejected", "Model rejected based on features"
             if fraud_score >= 2:
@@ -155,169 +240,59 @@ def predict_claim_with_model(parsed: dict):
         except Exception as e:
             print(f"[ML] Error during prediction: {e}")
 
-    # 3) fallback only rules
+    # fallback heuristics only
     if fraud_score >= 2:
         return "Rejected", f"High fraud indicators (score={fraud_score})"
-    # If amounts match and we have basic matches, approve
     if parsed.get("match_amount", 0) == 1 and parsed.get("match_patient", 0) == 1:
         return "Approved", "Heuristics: amount & patient match"
-    # otherwise conservative
     return "Rejected", "Heuristics: insufficient matches"
 
-# Note: You may need to specify the path to your Tesseract installation
-# pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
-# --- APP SETUP ---
-app = Flask(__name__)
-CORS(app)
-bcrypt = Bcrypt(app)
+# ===========
+# API Routes
+# ===========
+@app.get("/api/health")
+def health():
+    return {"status": "ok"}
 
-# --- DATABASE CONFIGURATION ---
-basedir = os.path.abspath(os.path.dirname(__file__))
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'claims.db')
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-db = SQLAlchemy(app)
-
-# --- LOAD THE PRE-TRAINED AI MODEL ---
-try:
-    model = joblib.load('models/rf_model.pkl')
-    print("AI model loaded successfully.")
-except FileNotFoundError:
-    model = None
-    print("AI model not found. /predict endpoint will not work.")
-
-# --- DATABASE MODELS ---
-class User(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    email = db.Column(db.String(120), unique=True, nullable=False)
-    password = db.Column(db.String(60), nullable=False)
-    role = db.Column(db.String(20), nullable=False, default='policyholder')
-
-class Claim(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    claim_id_str = db.Column(db.String(100), unique=True, nullable=False)
-    full_name = db.Column(db.String(100), nullable=True)
-    email_address = db.Column(db.String(100), nullable=True)
-    phone_number = db.Column(db.String(20), nullable=True)
-    claim_amount = db.Column(db.Float, nullable=True)
-    claim_description = db.Column(db.Text, nullable=True)
-    nlp_extracted_amount = db.Column(db.Float, nullable=True)
-    ai_prediction = db.Column(db.String(50), nullable=True)
-    status = db.Column(db.String(50), nullable=False, default='Processing')
-    file_path = db.Column(db.String(300), nullable=True)
-
-# --- AI & NLP FUNCTIONS ---
-def extract_text_from_file(file_path):
-    """Extracts text from PDF or image files."""
-    text = ""
-    try:
-        if file_path.lower().endswith('.pdf'):
-            with fitz.open(file_path) as doc:
-                for page in doc:
-                    text += page.get_text()
-        elif file_path.lower().endswith(('.png', '.jpg', '.jpeg')):
-            text = pytesseract.image_to_string(Image.open(file_path))
-        print("--- Text extracted successfully ---")
-    except Exception as e:
-        print(f"Error extracting text: {e}")
-    return text
-
-def nlp_parse_text(text):
-    """Uses regular expressions to find specific details in the extracted text."""
-    amount_pattern = r'Total Amount Due:? \$?(\d+\.\d{2})'
-    amount_match = re.search(amount_pattern, text)
-    extracted_amount = float(amount_match.group(1)) if amount_match else None
-    print(f"--- NLP found amount: {extracted_amount} ---")
-    return {'nlp_extracted_amount': extracted_amount}
-
-def predict_claim(data):
-    """Makes a prediction using the loaded Random Forest model."""
-    if not model:
-        return "Model not loaded"
-    try:
-        # The model expects a DataFrame with specific columns.
-        # This example uses dummy data, as the form doesn't collect these details.
-        input_data = pd.DataFrame({
-            'age': [35],
-            'bmi': [25.0],
-            'children': [1],
-            'smoker': [0],
-            'region': [2]
-        })
-        prediction = model.predict(input_data)
-        result = "Approved" if prediction[0] == 1 else "Rejected"
-        print(f"--- AI prediction: {result} ---")
-        return result
-    except Exception as e:
-        print(f"Error during prediction: {e}")
-        return "Error in prediction"
-
-
-# --- API ENDPOINTS ---
-@app.route('/api/register', methods=['POST'])
+@app.post("/api/register")
 def register():
-    data = request.get_json()
-    hashed_password = bcrypt.generate_password_hash(data['password']).decode('utf-8')
-    new_user = User(email=data['email'], password=hashed_password, role=data.get('role', 'policyholder'))
-    db.session.add(new_user)
+    data = request.get_json() or {}
+    if not data.get("email") or not data.get("password"):
+        return jsonify({"message": "Email and password required"}), 400
+    if User.query.filter_by(email=data["email"]).first():
+        return jsonify({"message": "User already exists"}), 400
+    hashed = bcrypt.generate_password_hash(data["password"]).decode("utf-8")
+    user = User(email=data["email"], password=hashed, role=data.get("role", "policyholder"))
+    db.session.add(user)
     db.session.commit()
-    return jsonify({'message': 'New user created!'}), 201
+    return jsonify({"message": "New user created!"}), 201
 
-@app.route('/api/login', methods=['POST'])
+@app.post("/api/login")
 def login():
-    data = request.get_json()
-    user = User.query.filter_by(email=data['email']).first()
-    if user and bcrypt.check_password_hash(user.password, data['password']):
-        return jsonify({'message': 'Login successful!', 'role': user.role})
-    return jsonify({'message': 'Login failed! Check email and password.'}), 401
+    data = request.get_json() or {}
+    user = User.query.filter_by(email=data.get("email", "")).first()
+    if user and bcrypt.check_password_hash(user.password, data.get("password", "")):
+        # If later you add JWT, return access_token here
+        return jsonify({"message": "Login successful!", "role": user.role}), 200
+    return jsonify({"message": "Login failed! Check email and password."}), 401
 
-# ---- Compatibility wrapper so both old/new signatures work ----
-def nlp_parse_text_compat(text: str, full_name: str = "", hospital_hint: str = "") -> dict:
-    """
-    Calls nlp_parse_text() no matter which version you currently have.
-    If your nlp_parse_text(text) is the old one, we augment its result with
-    patient/hospital matches and amount_diff so fraud scoring still works.
-    """
-    try:
-        # Try the new-style call first
-        return nlp_parse_text(text, full_name=full_name, hospital_hint=hospital_hint)
-    except TypeError:
-        # Fall back to old signature: nlp_parse_text(text)
-        base = nlp_parse_text(text) or {}
-        # ensure keys exist
-        amount_claim = base.get("amount_claim")
-        amount_bill  = base.get("amount_bill")
-        # add matches
-        base["match_patient"]  = 1 if (full_name and full_name.lower() in text.lower()) else 0
-        base["match_hospital"] = 1 if ("hospital" in text.lower()) else 0 if base.get("match_hospital") is None else base["match_hospital"]
-        # compute amount_diff/match_amount if possible
-        if amount_claim is not None and amount_bill is not None:
-            base["amount_diff"]  = round(abs(float(amount_claim) - float(amount_bill)), 2)
-            base["match_amount"] = 1 if abs(float(amount_claim) - float(amount_bill)) < 0.001 else 0
-        else:
-            base.setdefault("amount_diff", 0)
-            base.setdefault("match_amount", 0)
-        # keep the field your DB expects if missing
-        base.setdefault("nlp_extracted_amount", amount_claim if amount_claim is not None else amount_bill)
-        return base
-
-
-@app.route('/api/submit', methods=['POST'])
+@app.post("/api/submit")
 def submit_claim():
-    full_name = request.form.get('fullName', '') or ''
-    email = request.form.get('email', '') or ''
-    phone = request.form.get('phone', '') or ''
-    description = request.form.get('description', '') or ''
-    amount = request.form.get('amount', type=float)
-    file = request.files.get('file')
+    full_name = request.form.get("fullName", "") or ""
+    email = request.form.get("email", "") or ""
+    phone = request.form.get("phone", "") or ""
+    description = request.form.get("description", "") or ""
+    amount = request.form.get("amount", type=float)
+    file = request.files.get("file")
 
-    if not file or file.filename == '':
-        return jsonify({'error': 'No document file provided'}), 400
+    if not file or file.filename == "":
+        return jsonify({"error": "No document file provided"}), 400
     if not allowed_file(file.filename):
-        return jsonify({'error': 'Invalid file type. Allowed: pdf, jpg, jpeg, png'}), 415
+        return jsonify({"error": "Invalid file type. Allowed: pdf, jpg, jpeg, png"}), 415
 
-    # Save with a safe + unique name
-    upload_folder = os.path.join(basedir, 'uploads')
+    # Save file safely (container-friendly path)
+    upload_folder = os.getenv("UPLOAD_DIR", "/tmp/uploads")
     os.makedirs(upload_folder, exist_ok=True)
     safe_name = secure_filename(file.filename)
     filename = f"{int(time.time())}_{uuid.uuid4().hex}_{safe_name}"
@@ -326,12 +301,8 @@ def submit_claim():
 
     # OCR + NLP
     raw_text = extract_text_from_file(file_path)
-    # old line that crashes:
-    # parsed = nlp_parse_text(raw_text, full_name=full_name, hospital_hint='')
-
-    # new robust line:
-    parsed = nlp_parse_text_compat(raw_text, full_name=full_name, hospital_hint='')
-    # tie the UI 'amount' to parsed if missing
+    parsed = nlp_parse_text_compat(raw_text, full_name=full_name, hospital_hint="")
+    # Use user-entered amount if OCR missed it
     if parsed.get("amount_claim") is None and amount is not None:
         parsed["amount_claim"] = float(amount)
         if parsed.get("amount_bill") is None:
@@ -357,57 +328,71 @@ def submit_claim():
     db.session.commit()
 
     return jsonify({
-        'message': 'Claim submitted and analyzed successfully!',
-        'claim_id': new_claim.claim_id_str,
-        'prediction': decision,
-        'reason': reason,
-        'parsed': {
-            'amount_claim': parsed.get('amount_claim'),
-            'amount_bill': parsed.get('amount_bill'),
-            'amount_diff': parsed.get('amount_diff'),
-            'match_amount': parsed.get('match_amount'),
-            'match_patient': parsed.get('match_patient'),
-            'match_hospital': parsed.get('match_hospital'),
+        "message": "Claim submitted and analyzed successfully!",
+        "claim_id": new_claim.claim_id_str,
+        "prediction": decision,
+        "reason": reason,
+        "parsed": {
+            "amount_claim": parsed.get("amount_claim"),
+            "amount_bill": parsed.get("amount_bill"),
+            "amount_diff": parsed.get("amount_diff"),
+            "match_amount": parsed.get("match_amount"),
+            "match_patient": parsed.get("match_patient"),
+            "match_hospital": parsed.get("match_hospital"),
         }
     }), 201
 
+@app.get("/api/claims")
+def get_claims():
+    all_claims = Claim.query.all()
+    claims_list = [{
+        "id": c.claim_id_str,
+        "status": c.status,
+        "procedure": c.claim_description,
+        "amount": c.claim_amount
+    } for c in all_claims]
+    return jsonify(claims_list), 200
 
-@app.route('/api/claims/<claim_id>', methods=['GET'])
+@app.get("/api/claims/<claim_id>")
 def get_claim(claim_id):
-    claim = Claim.query.filter_by(claim_id_str=claim_id).first()
-    if not claim:
-        return jsonify({'error': 'Claim not found'}), 404
-
+    c = Claim.query.filter_by(claim_id_str=claim_id).first()
+    if not c:
+        return jsonify({"error": "Claim not found"}), 404
     return jsonify({
-        'id': claim.claim_id_str,
-        'full_name': claim.full_name,
-        'email': claim.email_address,
-        'phone': claim.phone_number,
-        'procedure': claim.claim_description,
-        'amount': claim.claim_amount,
-        'status': claim.status,
-        'ai_prediction': claim.ai_prediction,
-        'nlp_extracted_amount': claim.nlp_extracted_amount,
-        'created_at': claim.id  # or use a DateTime field if you add one
-    })
+        "id": c.claim_id_str,
+        "full_name": c.full_name,
+        "email": c.email_address,
+        "phone": c.phone_number,
+        "procedure": c.claim_description,
+        "amount": c.claim_amount,
+        "status": c.status,
+        "ai_prediction": c.ai_prediction,
+        "nlp_extracted_amount": c.nlp_extracted_amount,
+    }), 200
 
-# --- Custom CLI Command ---
+
+# ==================
+# CLI: init database
+# ==================
 @app.cli.command("init-db")
 def init_db_command():
-    """Creates the database tables and adds test users."""
-    db.drop_all()
+    """Create tables if missing and seed two demo users (non-destructive)."""
     db.create_all()
-
-    hashed_password_insurer = bcrypt.generate_password_hash('insurer123').decode('utf-8')
-    insurer_user = User(email='insurer@test.com', password=hashed_password_insurer, role='insurer')
-    db.session.add(insurer_user)
-
-    hashed_password_user = bcrypt.generate_password_hash('user123').decode('utf-8')
-    policyholder_user = User(email='user@test.com', password=hashed_password_user, role='policyholder')
-    db.session.add(policyholder_user)
-
+    # seed insurer
+    if not User.query.filter_by(email="insurer@test.com").first():
+        hashed = bcrypt.generate_password_hash("insurer123").decode("utf-8")
+        db.session.add(User(email="insurer@test.com", password=hashed, role="insurer"))
+    # seed policyholder
+    if not User.query.filter_by(email="user@test.com").first():
+        hashed = bcrypt.generate_password_hash("user123").decode("utf-8")
+        db.session.add(User(email="user@test.com", password=hashed, role="policyholder"))
     db.session.commit()
-    print("Initialized the database and created test users.")
+    print("Initialized the database and ensured demo users exist.")
 
-if __name__ == '__main__':
-    app.run(debug=True, port=5001)
+
+# ===========
+# Entrypoint
+# ===========
+if __name__ == "__main__":
+    port = int(os.getenv("PORT", 5001))
+    app.run(host="0.0.0.0", port=port, debug=True)

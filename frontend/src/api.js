@@ -1,6 +1,11 @@
-// Simple fetch wrapper. If you later add JWT, pass { token } to include Authorization.
+const API_BASE =
+  process.env.REACT_APP_API_BASE ||
+  (process.env.NODE_ENV === "production"
+    ? "https://fyviazfv9b.ap-southeast-2.awsapprunner.com/"
+    : "http://localhost:5001");
+
 export async function api(path, { method = "GET", body, token } = {}) {
-  const res = await fetch(`http://localhost:5001${path}`, {
+  const res = await fetch(`${API_BASE}${path}`, {
     method,
     headers: {
       ...(body instanceof FormData ? {} : { "Content-Type": "application/json" }),
