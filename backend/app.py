@@ -4,10 +4,14 @@ import time
 import uuid
 import warnings
 
+
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from flask_bcrypt import Bcrypt
+from pathlib import Path
+import json
+from assessment.assessment_engine_v2 import (load_catalog, load_fees, rule_assess, price_and_eob)
 
 import joblib
 import pandas as pd
@@ -23,6 +27,23 @@ from werkzeug.utils import secure_filename
 # App & Config (create app FIRST)
 # ===============================
 app = Flask(__name__)
+
+# --- Assessment Engine bootstrap ---
+BASE_DIR = Path(__file__).resolve().parent
+ASSESS_DIR = BASE_DIR / "assessment"
+
+CATALOG_PATH = ASSESS_DIR / "data" / "benefit_catalog.json"
+FEE_PATH     = ASSESS_DIR / "data" / "fee_schedule.json"
+
+# Loaded once at startup
+catalog = load_catalog(CATALOG_PATH)
+fees    = load_fees(FEE_PATH)
+
+# Plan config (co-insurance / tier knobs). Keep defaults now.
+PLAN_CFG = {
+    # future: coinsurance tables, gaps, in-network weighting, etc.
+}
+
 
 # Environment-driven config
 DEFAULT_DB = "sqlite:////tmp/claims.db"  # container-friendly default
@@ -71,9 +92,13 @@ class Claim(db.Model):
     claim_description = db.Column(db.Text, nullable=True)
     nlp_extracted_amount = db.Column(db.Float, nullable=True)
     ai_prediction = db.Column(db.String(50), nullable=True)
-    status = db.Column(db.String(50), nullable=False, default="Processing")
+    status = db.Column(db.String(50), nullable=False, default='Processing')
     file_path = db.Column(db.String(300), nullable=True)
 
+    # NEW:
+    risk_score = db.Column(db.Float, nullable=True)
+    decision_reason = db.Column(db.Text, nullable=True)
+    signals_json = db.Column(db.Text, nullable=True)   # store JSON as text for SQLite
 
 # =======================
 # Model load (RandomForest)

@@ -1,0 +1,15 @@
+{
+  "mbs_like_allowed": {
+    "gastrointestinal endoscopy": 950,
+    "ear, nose, and throat surgery": 1600,
+    "hernia and appendix surgery": 2500,
+    "gynaecology": 1800,
+    "chemotherapy": 1200,
+    "radiotherapy": 2200,
+    "immunotherapy for cancer": 3500,
+    "diagnostic imaging": 300,
+    "pathology tests": 120,
+    "fracture management": 700,
+    "day surgery theatre fees": 600
+  }
+}

@@ -1,0 +1,76 @@
+{
+  "hospital_inclusions": [
+    "rehabilitation",
+    "palliative care",
+    "hospital psychiatric services",
+    "ear, nose, and throat surgery",
+    "hernia and appendix surgery",
+    "gynaecology",
+    "gastrointestinal endoscopy",
+    "joint reconstructions",
+    "chemotherapy",
+    "radiotherapy",
+    "immunotherapy for cancer",
+    "fracture management",
+    "diagnostic imaging",
+    "pathology tests",
+    "day surgery theatre fees"
+  ],
+  "hospital_exclusions": [
+    "pregnancy and birth services",
+    "joint replacements",
+    "cataract surgery",
+    "dialysis for chronic kidney failure",
+    "assisted reproductive services",
+    "ivf",
+    "fertility treatment",
+    "cosmetic surgery",
+    "elective surgery",
+    "cochlear implants",
+    "overseas treatment"
+  ],
+  "hospital_restricted": [
+    "hospital psychiatric services"
+  ],
+  "extras_inclusions": [
+    "dental",
+    "optical",
+    "physiotherapy",
+    "chiropractic",
+    "podiatry",
+    "remedial massage"
+  ],
+  "extras_exclusions": [
+    "overseas treatment",
+    "non-approved provider services"
+  ],
+  "synonyms": {
+    "ent": "ear, nose, and throat surgery",
+    "appendix": "hernia and appendix surgery",
+    "gyn": "gynaecology",
+    "endoscopy": "gastrointestinal endoscopy",
+    "chemo": "chemotherapy",
+    "radio": "radiotherapy",
+    "immuno": "immunotherapy for cancer",
+    "sleep study": "diagnostic imaging",
+    "lab": "pathology tests",
+    "x-ray": "diagnostic imaging",
+    "overseas": "overseas treatment",
+    "lasik": "laser eye surgery (refractive)",
+    "laser eye": "laser eye surgery (refractive)",
+    "cosmetic": "cosmetic surgery"
+  },
+  "waiting_periods": {
+    "general_hospital_days": 60,
+    "pregnancy_days": 365,
+    "preexisting_days": 365
+  },
+  "max_submission_days": 730,
+  "plan_pricing": {
+    "coinsurance_by_tier": {
+      "1": 0.10,
+      "2": 0.20,
+      "3": 0.40
+    }
+  }
+}
