@@ -232,6 +232,92 @@ FEATURE_ORDER = [
     "match_amount", "match_patient", "match_hospital", "amount_diff"
 ]
 
+def run_assessment_with_rules(description: str, amount: float, raw_text: str):
+    """
+    Minimal mapping from your form/OCR into the rule-based coverage adjudication.
+    Returns a dict with decision, risk_score, reasons, eob, and signals.
+    """
+    billed_amount = float(amount or 0.0)
+    text = (raw_text or "") + " " + (description or "")
+    tlow = text.lower()
+
+    # naive provider/service hints from text
+    service_type = "inpatient" if ("admission" in tlow or "ward" in tlow or "hospital" in tlow) else "outpatient"
+    in_network   = 1  # assume in-network for demo
+    provider_approved = 1
+    hospital_tier = 1
+    country = "au"
+    is_emergency = 1 if ("emergency" in tlow or "ed " in tlow or "er " in tlow) else 0
+
+    # Claim record expected by the engine
+    claim_rec = {
+        "plan_type": "hospital",              # or 'extras' if you later split
+        "clinical_category": description or "",
+        "billed_amount": billed_amount,
+        "coverage_limit": 1e9,                # effectively unlimited for demo
+        "in_network": in_network,
+        "provider_approved": provider_approved,
+        "hospital_tier": hospital_tier,
+        "country": country,
+        "is_emergency": is_emergency,
+        "service_type": service_type,
+        "policy_active": 1,
+        # dates are optional; rules will assume ok if omitted
+        "treatment_date": None,
+        "policy_start_date": None,
+        "submission_date": None,
+    }
+
+    hard_block, reason, details = rule_assess(claim_rec, catalog, fees)
+    eob = price_and_eob(claim_rec, details, fees, PLAN_CFG)
+
+    # Decision + risk score:
+    # - Hard block => Rejected (high risk)
+    # - Otherwise: if plan_payable is small or zero, ask for Manual Review; else Approved
+    plan_payable = float(eob.get("plan_payable", 0) or 0)
+    billed = billed_amount
+
+    if hard_block:
+        decision = "Rejected"
+        risk_score = 85
+        reasons = [reason] if reason else ["Policy rules deny this claim."]
+    else:
+        coverage_ratio = (plan_payable / billed) if billed > 0 else 0
+        if coverage_ratio <= 0.05:     # effectively $0 benefit
+            decision = "Manual Review"
+            risk_score = 60
+            reasons = ["Very low payable vs billed; requires human review."]
+        elif coverage_ratio < 0.5:
+            decision = "Manual Review"
+            risk_score = 45
+            reasons = ["Partial coverage; confirm itemization."]
+        else:
+            decision = "Approved"
+            risk_score = 20
+            reasons = ["Within coverage; payable amount calculated."]
+
+    signals = {
+        "service_type": service_type,
+        "in_network": in_network,
+        "hospital_tier": hospital_tier,
+        "country": country,
+        "is_emergency": is_emergency,
+        "policy_bucket": details.get("bucket", "allow"),
+        "allowed_amount": eob.get("allowed_amount"),
+        "plan_payable": eob.get("plan_payable"),
+        "member_liability": eob.get("member_liability"),
+    }
+
+    return {
+        "decision": decision,
+        "risk_score": risk_score,
+        "reasons": reasons,
+        "signals": signals,
+        "eob": eob,
+    }
+
+
+
 def build_features(parsed: dict) -> pd.DataFrame:
     row = {}
     for col in FEATURE_ORDER:
@@ -337,17 +423,24 @@ def submit_claim():
     decision, reason = predict_claim_with_model(parsed)
     print(f"[DECISION] {decision} — {reason}")
 
+    assessment = run_assessment_with_rules(description, amount, raw_text)
+
     new_claim = Claim(
         claim_id_str=f"C-{int(time.time())}",
         full_name=full_name,
         email_address=email,
         phone_number=phone,
-        claim_amount=amount if amount is not None else parsed.get("amount_claim"),
+        claim_amount=amount,
         claim_description=description,
         file_path=file_path,
-        nlp_extracted_amount=parsed.get("amount_claim"),
-        ai_prediction=decision,
-        status=decision
+        nlp_extracted_amount=nlp_data.get('nlp_extracted_amount'),
+
+        # NEW:
+        ai_prediction=assessment["decision"],   # keep a single decision field
+        status=assessment["decision"],
+        risk_score=assessment["risk_score"],
+        decision_reason="; ".join(assessment["reasons"]),
+        signals_json=json.dumps(assessment["signals"]),
     )
     db.session.add(new_claim)
     db.session.commit()
@@ -355,16 +448,10 @@ def submit_claim():
     return jsonify({
         "message": "Claim submitted and analyzed successfully!",
         "claim_id": new_claim.claim_id_str,
-        "prediction": decision,
-        "reason": reason,
-        "parsed": {
-            "amount_claim": parsed.get("amount_claim"),
-            "amount_bill": parsed.get("amount_bill"),
-            "amount_diff": parsed.get("amount_diff"),
-            "match_amount": parsed.get("match_amount"),
-            "match_patient": parsed.get("match_patient"),
-            "match_hospital": parsed.get("match_hospital"),
-        }
+        "prediction": assessment["decision"],
+        "risk_score": assessment["risk_score"],
+        "reasons": assessment["reasons"],
+        "eob": assessment["eob"],
     }), 201
 
 @app.get("/api/claims")
@@ -378,21 +465,20 @@ def get_claims():
     } for c in all_claims]
     return jsonify(claims_list), 200
 
-@app.get("/api/claims/<claim_id>")
+@app.route("/api/claims/<claim_id>", methods=["GET"])
 def get_claim(claim_id):
-    c = Claim.query.filter_by(claim_id_str=claim_id).first()
-    if not c:
-        return jsonify({"error": "Claim not found"}), 404
+    c = Claim.query.filter_by(claim_id_str=claim_id).first_or_404()
     return jsonify({
         "id": c.claim_id_str,
-        "full_name": c.full_name,
-        "email": c.email_address,
-        "phone": c.phone_number,
+        "status": c.status,
         "procedure": c.claim_description,
         "amount": c.claim_amount,
-        "status": c.status,
         "ai_prediction": c.ai_prediction,
         "nlp_extracted_amount": c.nlp_extracted_amount,
+        "risk_score": c.risk_score,
+        "decision_reason": c.decision_reason,
+        "signals": json.loads(c.signals_json or "{}"),
+        "eob": json.loads(c.eob_json or "{}") if hasattr(c, "eob_json") else {},  # if you stored EOB too
     }), 200
 
 
