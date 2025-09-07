@@ -4,27 +4,29 @@ import json
 import re
 from pathlib import Path
 from datetime import datetime
+
 from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 from flask_bcrypt import Bcrypt
+from sqlalchemy import inspect
+from sqlalchemy.exc import OperationalError
 
 # OCR / NLP
 import pytesseract
 from PIL import Image
 import fitz  # PyMuPDF
 
-# Optional model (kept non-blocking)
+# Optional ML (non-blocking)
 import joblib
 import pandas as pd
 
 # ======================
-# App & Config
+# App & CORS
 # ======================
 app = Flask(__name__)
 bcrypt = Bcrypt(app)
 
-# CORS: allow Netlify + local dev
 CORS(
     app,
     resources={r"/api/*": {"origins": [
@@ -36,23 +38,25 @@ CORS(
 
 BASE_DIR = Path(__file__).resolve().parent
 
+# ======================
+# DB config (Windows vs Linux/Container) or DATABASE_URL
+# ======================
 database_url = os.getenv("DATABASE_URL")
 if database_url:
     app.config["SQLALCHEMY_DATABASE_URI"] = database_url
 else:
     if os.name == "nt":  # Windows
         db_file = BASE_DIR / "claims.db"
-    else:                # Linux/containers
+    else:                # Linux/containers (e.g., App Runner)
         db_file = Path("/tmp/claims.db")
-    # Make sure the directory exists
     db_file.parent.mkdir(parents=True, exist_ok=True)
-    # Build a proper sqlite URI; use forward slashes
     app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{db_file.as_posix()}"
 
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
 
 # ======================
-# Optional ML model load (non-fatal)
+# Optional ML model (won't override rules)
 # ======================
 MODEL = None
 try:
@@ -67,8 +71,8 @@ except Exception as e:
 
 # ======================
 # Assessment Engine bootstrap
+# (Make sure you have backend/assessment/assessment_engine_v2.py and data/*.json)
 # ======================
-# Files expected at backend/assessment/data/...
 from assessment.assessment_engine_v2 import (
     load_catalog, load_fees, rule_assess, price_and_eob
 )
@@ -80,7 +84,7 @@ FEE_PATH     = ASSESS_DIR / "data" / "fee_schedule.json"
 catalog = load_catalog(CATALOG_PATH)
 fees    = load_fees(FEE_PATH)
 
-PLAN_CFG = {}  # keep defaults; expand later for coinsurance tables etc.
+PLAN_CFG = {}  # extend later if needed
 
 # ======================
 # DB Models
@@ -106,14 +110,14 @@ class Claim(db.Model):
 
     nlp_extracted_amount = db.Column(db.Float)
 
-    ai_prediction = db.Column(db.String(50))  # final decision label
+    ai_prediction = db.Column(db.String(50))
     status = db.Column(db.String(50), nullable=False, default="Processing")
 
     # Assessment outputs
     risk_score = db.Column(db.Float)
-    decision_reason = db.Column(db.Text)      # joined reasons
-    signals_json = db.Column(db.Text)         # JSON text
-    eob_json = db.Column(db.Text)             # JSON text
+    decision_reason = db.Column(db.Text)
+    signals_json = db.Column(db.Text)
+    eob_json = db.Column(db.Text)
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -125,7 +129,6 @@ class ClaimHistory(db.Model):
     actor_email = db.Column(db.String(120))
     note = db.Column(db.Text)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
-
 
 # ======================
 # Helpers: OCR + NLP + Assessment
@@ -146,10 +149,7 @@ def extract_text_from_file(file_path: str) -> str:
 
 
 def nlp_parse_text(text: str) -> dict:
-    """
-    Very simple amount extractor:
-    matches 'Total Amount Due: $1234.56' or similar patterns.
-    """
+    """Simple total extractor; extend patterns as needed."""
     if not text:
         return {"nlp_extracted_amount": None}
 
@@ -171,7 +171,6 @@ def nlp_parse_text(text: str) -> dict:
 def run_assessment_with_rules(description: str, amount: float, raw_text: str, nlp_amount: float | None):
     """
     Rules-first assessment with strong protection against amount mismatches.
-    :param nlp_amount: numeric total extracted by OCR/NLP (may be None)
     """
     billed_amount = float(amount or 0.0)
     text = f"{raw_text or ''} {description or ''}".lower()
@@ -203,8 +202,7 @@ def run_assessment_with_rules(description: str, amount: float, raw_text: str, nl
     plan_payable = float(eob.get("plan_payable", 0) or 0)
     billed = billed_amount
 
-    # ---------- Amount mismatch rules (NEW) ----------
-    # Compute diff & ratio when we have an OCR/NLP total
+    # ---------- Amount mismatch rules ----------
     amount_diff = None
     mismatch_ratio = None
     amount_mismatch_reason = None
@@ -213,52 +211,57 @@ def run_assessment_with_rules(description: str, amount: float, raw_text: str, nl
         amount_diff = abs(billed - float(nlp_amount))
         mismatch_ratio = billed / max(float(nlp_amount), 0.01)
 
-        # Very large mismatch -> Reject
+        # Severe mismatch -> Reject
         if amount_diff >= 1000 or mismatch_ratio >= 3.0:
             hard_block = True
             amount_mismatch_reason = (
-                f"Claimed amount ${billed:,.2f} differs greatly from document total "
-                f"${float(nlp_amount):,.2f} (Δ=${amount_diff:,.2f}, ×{mismatch_ratio:.2f})."
+                f"Claimed ${billed:,.2f} ≠ Doc total ${float(nlp_amount):,.2f} "
+                f"(Δ=${amount_diff:,.2f}, ×{mismatch_ratio:.2f})."
             )
-
-        # Moderate mismatch -> Manual Review (raise risk)
+        # Moderate mismatch -> Manual Review
         elif amount_diff >= 300 or mismatch_ratio >= 1.5:
-            # not a hard block, but moderate risk
             amount_mismatch_reason = (
-                f"Claimed amount ${billed:,.2f} does not match document total "
-                f"${float(nlp_amount):,.2f} (Δ=${amount_diff:,.2f}, ×{mismatch_ratio:.2f})."
+                f"Claimed ${billed:,.2f} ≠ Doc total ${float(nlp_amount):,.2f} "
+                f"(Δ=${amount_diff:,.2f}, ×{mismatch_ratio:.2f})."
             )
 
-    # ---------- Final decision ----------
-    reasons = []
-    if hard_block:
-        decision = "Rejected"
-        risk_score = 85
-        reasons.append(reason or "Policy rules deny this claim.")
-        if amount_mismatch_reason:
-            reasons.insert(0, "Claimed ≠ Document total (severe).")
-            reasons.append(amount_mismatch_reason)
+    # Defensive guard: high bill with no OCR total should not auto-approve
+    if nlp_amount is None and billed >= 2000 and not hard_block:
+        amount_mismatch_reason = "Document total not found for a high-amount claim."
+        # treat as manual review
+        decision = "Manual Review"
+        risk_score = 60
+        reasons = [amount_mismatch_reason]
     else:
-        coverage_ratio = (plan_payable / billed) if billed > 0 else 0
-        if amount_mismatch_reason:
-            # Force Manual Review on moderate mismatch
-            decision = "Manual Review"
-            risk_score = 60
-            reasons.append("Claimed ≠ Document total (moderate).")
-            reasons.append(amount_mismatch_reason)
+        # ---------- Final decision ----------
+        reasons = []
+        if hard_block:
+            decision = "Rejected"
+            risk_score = 85
+            reasons.append(reason or "Policy rules deny this claim.")
+            if amount_mismatch_reason:
+                reasons.insert(0, "Claimed ≠ Document total (severe).")
+                reasons.append(amount_mismatch_reason)
         else:
-            if coverage_ratio <= 0.05:
+            coverage_ratio = (plan_payable / billed) if billed > 0 else 0
+            if amount_mismatch_reason:
                 decision = "Manual Review"
                 risk_score = 60
-                reasons.append("Very low payable vs billed; requires human review.")
-            elif coverage_ratio < 0.5:
-                decision = "Manual Review"
-                risk_score = 45
-                reasons.append("Partial coverage; confirm itemization.")
+                reasons.append("Claimed ≠ Document total (moderate).")
+                reasons.append(amount_mismatch_reason)
             else:
-                decision = "Approved"
-                risk_score = 20
-                reasons.append("Within coverage; payable amount calculated.")
+                if coverage_ratio <= 0.05:
+                    decision = "Manual Review"
+                    risk_score = 60
+                    reasons.append("Very low payable vs billed; requires human review.")
+                elif coverage_ratio < 0.5:
+                    decision = "Manual Review"
+                    risk_score = 45
+                    reasons.append("Partial coverage; confirm itemization.")
+                else:
+                    decision = "Approved"
+                    risk_score = 20
+                    reasons.append("Within coverage; payable amount calculated.")
 
     signals = {
         "service_type": service_type,
@@ -270,11 +273,15 @@ def run_assessment_with_rules(description: str, amount: float, raw_text: str, nl
         "allowed_amount": eob.get("allowed_amount"),
         "plan_payable": eob.get("plan_payable"),
         "member_liability": eob.get("member_liability"),
-        # NEW visibility for UI / debugging
+        # visibility for UI / debugging
         "nlp_total": nlp_amount,
         "amount_diff": amount_diff,
         "mismatch_ratio": mismatch_ratio,
     }
+
+    print(f"[ASSESS] decision={decision} risk={risk_score} "
+          f"diff={signals.get('amount_diff')} ratio={signals.get('mismatch_ratio')} "
+          f"bucket={signals.get('policy_bucket')} payable={signals.get('plan_payable')}")
 
     return {
         "decision": decision,
@@ -284,14 +291,16 @@ def run_assessment_with_rules(description: str, amount: float, raw_text: str, nl
         "eob": eob,
     }
 
-
 # ======================
 # API Routes
 # ======================
+@app.get("/api/version")
+def version():
+    return jsonify({"app": "claims-backend", "rules_patch": "mismatch-v1"})
+
 @app.get("/api/health")
 def health():
     return jsonify({"ok": True, "time": time.time()})
-
 
 @app.post("/api/register")
 def register():
@@ -300,7 +309,6 @@ def register():
     pwd = data.get("password", "")
     if not email or not pwd:
         return jsonify({"message": "email and password required"}), 400
-
     if User.query.filter_by(email=email).first():
         return jsonify({"message": "email already exists"}), 400
 
@@ -311,7 +319,6 @@ def register():
     db.session.commit()
     return jsonify({"message": "New user created!"}), 201
 
-
 @app.post("/api/login")
 def login():
     data = request.get_json() or {}
@@ -319,10 +326,8 @@ def login():
     pwd = data.get("password", "")
     user = User.query.filter_by(email=email).first()
     if user and bcrypt.check_password_hash(user.password, pwd):
-        # If you add JWT later, issue a real token here.
         return jsonify({"message": "Login successful!", "role": user.role, "access_token": "session"})
     return jsonify({"message": "Login failed! Check email and password."}), 401
-
 
 @app.post("/api/submit")
 def submit_claim():
@@ -337,7 +342,7 @@ def submit_claim():
     if not file:
         return jsonify({"error": "No document file part"}), 400
 
-    # Save upload (local disk)
+    # Save upload
     upload_folder = BASE_DIR / "uploads"
     upload_folder.mkdir(parents=True, exist_ok=True)
     filename = f"{int(time.time())}_{file.filename}"
@@ -347,22 +352,20 @@ def submit_claim():
     # OCR + NLP
     raw_text = extract_text_from_file(file_path)
     nlp_data = nlp_parse_text(raw_text)
+    print(f"[NLP] extracted={nlp_data.get('nlp_extracted_amount')} billed={amount}")
 
-    # Assessment (rules)
+    # Rules Assessment (authoritative)
     assessment = run_assessment_with_rules(
-    description=description,
-    amount=amount,
-    raw_text=raw_text,
-    nlp_amount=nlp_data.get("nlp_extracted_amount"),
-)
+        description=description, amount=amount, raw_text=raw_text,
+        nlp_amount=nlp_data.get("nlp_extracted_amount"),
+    )
 
-    # (Optional) ML prediction — keep non-blocking (purely illustrative)
+    # Optional ML for logging only
     if MODEL:
         try:
-            df = pd.DataFrame({"age": [35], "bmi": [25.0], "children": [1], "smoker": [0], "region": [2]})
+            df = pd.DataFrame({"age":[35],"bmi":[25.0],"children":[1],"smoker":[0],"region":[2]})
             pred = MODEL.predict(df)[0]
-            # You could blend ML with rules; for now we ignore or log it
-            print(f"[ML] prediction={pred}")
+            print(f"[ML] raw_pred={pred}")
         except Exception as e:
             print(f"[ML] predict error: {e}")
 
@@ -395,7 +398,6 @@ def submit_claim():
         "eob": assessment["eob"],
     }), 201
 
-
 @app.get("/api/claims")
 def list_claims():
     claims = Claim.query.order_by(Claim.created_at.desc()).all()
@@ -409,7 +411,6 @@ def list_claims():
         })
     return jsonify(out)
 
-
 @app.get("/api/claims/<claim_id>")
 def get_claim(claim_id):
     c = Claim.query.filter_by(claim_id_str=claim_id).first_or_404()
@@ -420,12 +421,11 @@ def get_claim(claim_id):
         "amount": c.claim_amount,
         "ai_prediction": c.ai_prediction,
         "nlp_extracted_amount": c.nlp_extracted_amount,
-        "risk_score": c.risk_score or 0,
+        "risk_score": c.risk_score,
         "decision_reason": c.decision_reason or "",
         "signals": json.loads(c.signals_json or "{}"),
         "eob": json.loads(c.eob_json or "{}"),
     })
-
 
 @app.post("/api/claims/<claim_id>/decision")
 def set_claim_decision(claim_id):
@@ -445,13 +445,12 @@ def set_claim_decision(claim_id):
         return jsonify({"message": "updated", "status": c.status})
     return jsonify({"message": "invalid decision"}), 400
 
-
 # ======================
 # CLI seed + auto-seed
 # ======================
 @app.cli.command("init-db")
 def init_db_command():
-    """Create tables if missing and seed two demo users (non-destructive)."""
+    """Drop & recreate tables and seed demo users (safe for dev)."""
     db.drop_all()
     db.create_all()
     if not User.query.filter_by(email="insurer@test.com").first():
@@ -469,24 +468,36 @@ def init_db_command():
     db.session.commit()
     print("Initialized DB and demo users.")
 
-
 def ensure_db_seed():
-    """Auto-run at startup on platforms like App Runner."""
+    """Ensure DB tables exist and seed default users if missing (safe for redeploys)."""
     with app.app_context():
-        db.create_all()
-        if not User.query.first():
-            db.session.add(User(
-                email="user@test.com",
-                password=bcrypt.generate_password_hash("user123").decode("utf-8"),
-                role="policyholder",
-            ))
-            db.session.add(User(
-                email="insurer@test.com",
-                password=bcrypt.generate_password_hash("insurer123").decode("utf-8"),
-                role="insurer",
-            ))
-            db.session.commit()
-            print("[DB] Created tables and seeded default users.")
+        try:
+            insp = inspect(db.engine)
+
+            # Create tables only if the "user" table does not exist yet
+            if not insp.has_table("user"):
+                db.create_all()
+                print("[DB] Tables created.")
+
+                # Add default users
+                db.session.add(User(
+                    email="user@test.com",
+                    password=bcrypt.generate_password_hash("user123").decode("utf-8"),
+                    role="policyholder",
+                ))
+                db.session.add(User(
+                    email="insurer@test.com",
+                    password=bcrypt.generate_password_hash("insurer123").decode("utf-8"),
+                    role="insurer",
+                ))
+                db.session.commit()
+                print("[DB] Seeded default users.")
+
+            else:
+                print("[DB] Tables already exist; skipping create/seed.")
+
+        except OperationalError as e:
+            print(f"[DB] OperationalError during seed: {e}")
 
 ensure_db_seed()
 
@@ -494,5 +505,5 @@ ensure_db_seed()
 # Entrypoint
 # ======================
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", "5001"))
+    port = int(os.getenv("PORT", "8080"))
     app.run(host="0.0.0.0", port=port, debug=True)
