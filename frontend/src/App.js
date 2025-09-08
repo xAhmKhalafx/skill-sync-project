@@ -1,50 +1,49 @@
 import React from "react";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import NavBar from "./components/NavBar";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+import Navbar from "./components/Navbar";
 import Footer from "./components/Footer";
-import ProtectedRoute from "./components/ProtectedRoute";
+import Home from "./pages/Home";
+import Plans from "./pages/Plans";
+import ClaimsGuide from "./pages/ClaimsGuide";
+import Login from "./pages/Login";
+import Register from "./pages/Register";
+import Dashboard from "./pages/Dashboard";
+import InsurerConsole from "./pages/InsurerConsole";
+import NotFound from "./pages/NotFound";
+import ProtectedRoute from "./router/ProtectedRoute";
 import { useAuth } from "./hooks/useAuth";
 
-import HomePage from "./pages/HomePage";
-import PlansPage from "./pages/PlansPage";
-import ClaimsInfoPage from "./pages/ClaimsInfoPage";
-import ProvidersPage from "./pages/ProvidersPage";
-import SupportPage from "./pages/SupportPage";
-import LoginPage from "./pages/LoginPage";
-import RegisterPage from "./pages/RegisterPage";
-import PolicyholderDashboard from "./pages/dashboard/PolicyholderDashboard";
-import InsurerDashboard from "./pages/dashboard/InsurerDashboard";
-
 export default function App(){
-  const auth = useAuth();
+  const { authed, role, signin, signout } = useAuth();
+
   return (
     <BrowserRouter>
-      <div className="min-h-screen flex flex-col bg-white">
-        <NavBar isAuthed={auth.isAuthed} role={auth.role} onLogout={auth.logout} />
-        <main className="flex-1">
-          <Routes>
-            <Route path="/" element={<HomePage />} />
-            <Route path="/plans" element={<PlansPage />} />
-            <Route path="/claims" element={<ClaimsInfoPage />} />
-            <Route path="/providers" element={<ProvidersPage />} />
-            <Route path="/support" element={<SupportPage />} />
-            <Route path="/login" element={!auth.isAuthed ? <LoginPage onLogin={auth.login} /> : <Navigate to={auth.role === 'insurer' ? '/insurer/dashboard' : '/user/dashboard'} replace />} />
-            <Route path="/register" element={<RegisterPage />} />
-            <Route path="/user/dashboard" element={
-              <ProtectedRoute isAuthed={auth.isAuthed}>
-                <PolicyholderDashboard />
-              </ProtectedRoute>
-            } />
-            <Route path="/insurer/dashboard" element={
-              <ProtectedRoute isAuthed={auth.isAuthed}>
-                <InsurerDashboard />
-              </ProtectedRoute>
-            } />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </main>
-        <Footer />
-      </div>
+      <Navbar authed={authed} role={role} onSignout={signout} />
+      <Routes>
+        {/* Public site pages */}
+        <Route path="/" element={<Home />} />
+        <Route path="/plans" element={<Plans />} />
+        <Route path="/claims" element={<ClaimsGuide />} />
+        <Route path="/login" element={<Login onAuthed={signin} />} />
+        <Route path="/register" element={<Register />} />
+
+        {/* Member-only */}
+        <Route path="/user/dashboard" element={
+          <ProtectedRoute isAllowed={authed && role !== "insurer"}>
+            <Dashboard />
+          </ProtectedRoute>
+        } />
+
+        {/* Insurer-only */}
+        <Route path="/insurer" element={
+          <ProtectedRoute isAllowed={authed && role === "insurer"}>
+            <InsurerConsole />
+          </ProtectedRoute>
+        } />
+
+        <Route path="*" element={<NotFound />} />
+      </Routes>
+      <Footer />
     </BrowserRouter>
   );
 }
