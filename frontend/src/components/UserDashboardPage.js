@@ -51,13 +51,13 @@ export default function UserDashboardPage() {
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {claims.map((c) => (
-                <tr key={c.id}>
-                  <td className="px-6 py-4 whitespace-nowrap font-mono">{c.id}</td>
-                  <td className="px-6 py-4 whitespace-nowrap">{c.procedure || "—"}</td>
-                  <td className="px-6 py-4 whitespace-nowrap">${Number(c.amount || 0).toFixed(2)}</td>
+                <tr key={c.claimId}>
+                  <td className="px-6 py-4 whitespace-nowrap font-mono">{c.claimId}</td>
+                  <td className="px-6 py-4 whitespace-nowrap">{c.procedure_code || "—"}</td>
+                  <td className="px-6 py-4 whitespace-nowrap">${Number(c.claim_amount || 0).toFixed(2)}</td>
                   <td className="px-6 py-4 whitespace-nowrap"><StatusPill status={c.status} /></td>
                   <td className="px-6 py-4 whitespace-nowrap text-right">
-                    <Link to={`/user/claim/${encodeURIComponent(c.id)}`} className="text-blue-600 hover:text-blue-800">
+                    <Link to={`/user/claim/${encodeURIComponent(c.claimId)}`} className="text-blue-600 hover:text-blue-800">
                       View Details
                     </Link>
                   </td>

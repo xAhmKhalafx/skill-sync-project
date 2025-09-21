@@ -4,11 +4,9 @@ import { getToken } from "../auth";
 
 export default function SubmitClaimPage() {
   const [form, setForm] = useState({
-    fullName: "",
-    email: "",
-    phone: "",
-    description: "",
-    amount: "",
+    claimant_name: "",
+    procedure_code: "",
+    claim_amount: "",
     file: null,
   });
   const [result, setResult] = useState(null);
@@ -16,7 +14,7 @@ export default function SubmitClaimPage() {
 
   const onChange = (e) => {
     const { name, value, files } = e.target;
-    if (name === "file") setForm((f) => ({ ...f, file: files[0] || null }));
+    if (name === "file") setForm((f) => ({ ...f, file: files?.[0] || null }));
     else setForm((f) => ({ ...f, [name]: value }));
   };
 
@@ -25,15 +23,14 @@ export default function SubmitClaimPage() {
     setError(""); setResult(null);
     try {
       const fd = new FormData();
-      Object.entries(form).forEach(([k, v]) => {
-        if (k === "file") return;
-        fd.append(k, v);
-      });
+      fd.append("claimant_name", form.claimant_name);
+      fd.append("procedure_code", form.procedure_code);
+      fd.append("claim_amount", form.claim_amount);
       if (form.file) fd.append("file", form.file);
 
       const data = await api("/api/submit", { method: "POST", body: fd, token: getToken() });
       setResult(data);
-      setForm({ fullName: "", email: "", phone: "", description: "", amount: "", file: null });
+      setForm({ claimant_name: "", procedure_code: "", claim_amount: "", file: null });
     } catch (err) {
       setError(err.message);
     }
@@ -50,7 +47,7 @@ export default function SubmitClaimPage() {
           {result && (
             <div className={`p-4 rounded mb-4 ${result.prediction === "Approved" ? "bg-green-50 border border-green-200" : "bg-yellow-50 border border-yellow-200"}`}>
               <div className="font-semibold">Submitted!</div>
-              <div>Claim ID: <span className="font-mono">{result.claim_id}</span></div>
+              <div>Claim ID: <span className="font-mono">{result.claimId || result.claim_id}</span></div>
               <div>Prediction: <span className="font-semibold">{result.prediction}</span></div>
               {result.reason && <div>Reason: {result.reason}</div>}
             </div>
@@ -59,36 +56,24 @@ export default function SubmitClaimPage() {
           <form onSubmit={onSubmit} className="grid grid-cols-1 gap-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium mb-1">Full Name</label>
-                <input name="fullName" value={form.fullName} onChange={onChange} className="w-full border rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" required />
+                <label className="block text-sm text-gray-700 font-medium mb-1">Claimant Name</label>
+                <input name="claimant_name" value={form.claimant_name} onChange={onChange} className="w-full px-3 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">Email</label>
-                <input type="email" name="email" value={form.email} onChange={onChange} className="w-full border rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" required />
-              </div>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">Phone</label>
-                <input name="phone" value={form.phone} onChange={onChange} className="w-full border rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <label className="block text-sm text-gray-700 font-medium mb-1">Procedure Code</label>
+                <input name="procedure_code" value={form.procedure_code} onChange={onChange} className="w-full px-3 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">Amount</label>
-                <input type="number" step="0.01" name="amount" value={form.amount} onChange={onChange} className="w-full border rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <label className="block text-sm text-gray-700 font-medium mb-1">Claim Amount</label>
+                <input name="claim_amount" value={form.claim_amount} onChange={onChange} className="w-full px-3 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Procedure / Description</label>
-              <input name="description" value={form.description} onChange={onChange} className="w-full border rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Supporting Document (PDF/JPG/PNG)</label>
-              <input type="file" name="file" accept=".pdf,.jpg,.jpeg,.png" onChange={onChange} className="block w-full text-sm" />
+              <div>
+                <label className="block text-sm text-gray-700 font-medium mb-1">File (PDF/PNG/JPG)</label>
+                <input type="file" name="file" accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff" onChange={onChange} className="w-full" />
+              </div>
             </div>
             <div className="pt-2">
-              <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl font-semibold">
-                Submit Claim
-              </button>
+              <button type="submit" className="btn btn-primary">Submit</button>
             </div>
           </form>
         </div>
